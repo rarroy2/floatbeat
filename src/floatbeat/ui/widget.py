@@ -6,10 +6,17 @@ import time
 from collections.abc import Sequence
 
 from PySide6.QtCore import QPoint, QSettings, QSize, Qt, QTimer, Signal
-from PySide6.QtGui import QAction, QMouseEvent, QPainter
+from PySide6.QtGui import QAction, QActionGroup, QMouseEvent, QPainter
 from PySide6.QtWidgets import QApplication, QMenu, QWidget
 
-from ..desktop.display import restore_window_position
+from ..desktop.display import (
+    ANCHOR_LABELS,
+    ANCHORS,
+    DEFAULT_ANCHOR,
+    DEFAULT_MARGIN,
+    position_for_anchor,
+    restore_window_position,
+)
 from .avatar import FRAME_DIRTY, LED_DIRTY, VISOR_DIRTY, WIDGET_SIZE, AvatarRenderer
 
 MENU_STYLE = """
@@ -42,6 +49,13 @@ class FloatbeatWidget(QWidget):
         self.setFixedSize(WIDGET_SIZE)
 
         self._settings = settings
+        # Older builds had no anchor setting and stored a bottom-right position.
+        # Treat that as a migration: honour the new anchor once, then keep the
+        # user's manual position.
+        stored_anchor = settings.value("window/anchor")
+        self._anchor = str(stored_anchor) if stored_anchor in ANCHORS else DEFAULT_ANCHOR
+        self._margin = int(settings.value("window/margin", DEFAULT_MARGIN))
+        self._anchor_is_new = stored_anchor is None
         self._renderer = AvatarRenderer()
         self.paints = 0
         self.paint_seconds = 0.0
@@ -62,16 +76,43 @@ class FloatbeatWidget(QWidget):
         self._pause_action.toggled.connect(self.pause_toggled)
         self._menu.addAction(self._pause_action)
         self._menu.addSeparator()
-        self._menu.addAction("Reiniciar posición", self._reset_position)
+
+        position_menu = self._menu.addMenu("Posición en pantalla")
+        self._anchor_group = QActionGroup(self)
+        self._anchor_group.setExclusive(True)
+        for anchor in ANCHORS:
+            action = QAction(ANCHOR_LABELS[anchor], self)
+            action.setCheckable(True)
+            action.setChecked(anchor == self._anchor)
+            action.triggered.connect(lambda _checked, a=anchor: self.set_anchor(a))
+            self._anchor_group.addAction(action)
+            position_menu.addAction(action)
+
+        self._menu.addSeparator()
         self._menu.addAction("Salir", self.quit_requested.emit)
 
     # -- lifecycle ----------------------------------------------------------
 
     def restore_position(self) -> None:
+        if self._anchor_is_new:
+            self.move(position_for_anchor(self._anchor, self.size(), self._margin))
+            self._settings.setValue("window/anchor", self._anchor)
+            self._anchor_is_new = False
+            return
         saved = self._settings.value("window/pos")
         if not isinstance(saved, QPoint):
             saved = None
-        self.move(restore_window_position(saved, self.size()))
+        self.move(restore_window_position(saved, self.size(), self._anchor, self._margin))
+
+    def set_anchor(self, anchor: str) -> None:
+        """Snap to a corner of the work area (panel-aware) and remember it."""
+        if anchor not in ANCHORS:
+            return
+        self._anchor = anchor
+        self._anchor_is_new = False
+        self._settings.setValue("window/anchor", anchor)
+        self.move(position_for_anchor(anchor, self.size(), self._margin))
+        self._save_position()
 
     def show_idle(self) -> None:
         """Paint the resting pose once, then stay silent."""
@@ -165,10 +206,6 @@ class FloatbeatWidget(QWidget):
         self._pause_action.setChecked(paused)
         self._pause_action.setText("Reanudar animación" if paused else "Pausar animación")
         self._pause_action.blockSignals(False)
-
-    def _reset_position(self) -> None:
-        self.move(restore_window_position(None, self.size()))
-        self._save_position()
 
     def _save_position(self) -> None:
         self._settings.setValue("window/pos", self.pos())
