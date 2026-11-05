@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "floatbeat"
-version = "0.1.0.dev0"
+version = "0.1.0"
 description = "A tiny floating DJ for the Linux desktop that reacts to system audio."
 readme = "README.md"
 license = { file = "LICENSE" }

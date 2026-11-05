@@ -2,9 +2,11 @@
 
 > A tiny DJ that lives on your Linux desktop and moves to whatever is playing.
 
-**Status: alpha — Phase 1.** The floating window, the procedural avatar and the
+**Status: v0.1.0 — Phase 1.** The floating window, the procedural avatar and the
 demo signal are working. Real audio capture and MPRIS metadata are next
 (see [`docs/SPEC.md`](docs/SPEC.md)).
+
+Full usage guide, FAQ and troubleshooting: [`docs/USAGE.md`](docs/USAGE.md).
 
 ![Floatbeat avatar reacting to the demo signal](docs/media/preview.png)
 
@@ -25,7 +27,9 @@ python -m floatbeat
 
 - **Drag** anywhere on the character to move it.
 - **Click** to poke it.
-- **Right-click** for the menu: pause, reset position, quit.
+- **Right-click** for the menu: pause, corner anchor, quit.
+- It starts in the **top-right of the work area**, just below the panel (the bar
+  with the clock on GNOME), and follows the panel if you move it.
 
 ```bash
 python -m floatbeat --no-demo   # resting pose, render timer stopped
@@ -73,22 +77,28 @@ The audio level is authoritative: if there is signal, the widget animates even
 when no MPRIS player is publishing metadata (games, browsers, calls). MPRIS
 enriches and controls; it does not gate the animation.
 
-## Performance budget
+## What it costs you
 
 Measured on GNOME/Wayland (XWayland), 12 threads, 1920×1080 @ 1×, PySide6 6.12
 on CPython 3.14. Full methodology and the optimisation log in
 [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md).
 
-| Metric | Phase 1 | Budget |
+| Metric | Measured | What it means |
 | --- | --- | --- |
-| RSS, animating | 85.6 MB | ≤ 120 MB |
-| PSS, animating | 55.9 MB | ≤ 65 MB |
-| CPU, 30 fps | 6.3–6.5 % of one core | ≤ 7 % |
-| CPU, paused | 0.00 % | ≈ 0 % |
-| Paint time | 1.3 ms / frame | ≤ 2 ms |
+| CPU, 30 fps | 6.4 % of one core | **0.53 % of a 12-thread machine.** GNOME Shell measured 16.2 % on the same box |
+| CPU, paused | 0.00 % | Timer stopped; the process sleeps |
+| RSS / PSS | 85.6 / 55.9 MB | About one browser tab; most of it is shared Qt |
+| Paint time | 1.33 ms / frame | 30 fps with headroom |
+
+The percentage is **of a single core**, the unit `top` and `htop` show. In
+practice you will not notice the widget running, and it disappears completely
+when playback stops. It is not free on battery — roughly the same order as a
+blinking desktop clock — and pausing it takes one click.
 
 A 40 MB target is not reachable with Qt: importing `PySide6.QtWidgets` alone
-costs 43.8 MB RSS before any window exists. The budget above is the honest one.
+costs 43.8 MB RSS before any window exists, and 3 % of a core is below the floor
+of the widget stack (~2.7 % before drawing anything). The numbers above are the
+honest ones, reproducible with `FLOATBEAT_STATS=1`.
 
 ## Requirements
 
@@ -96,6 +106,17 @@ costs 43.8 MB RSS before any window exists. The budget above is the honest one.
 - PipeWire or PulseAudio, with a monitor source on the default sink.
 - Python 3.12+ (PySide6 6.12 wheels are available for 3.14).
 - D-Bus session bus for MPRIS.
+
+## Where it sits
+
+The widget anchors to the **work area**, the part of the screen your desktop
+leaves free after panels and docks. On GNOME that means it appears right under
+the 32 px top bar, next to the clock area; on KDE or XFCE it follows the panel
+wherever you put it. Right-click → *Posición en pantalla* snaps it to any corner.
+
+It cannot live *inside* the panel: that is a plugin, not a window, and each
+desktop implements panels differently (GNOME Shell extension, KDE plasmoid,
+XFCE plugin). The work-area anchor is one implementation that works everywhere.
 
 ## Wayland note
 
@@ -135,7 +156,7 @@ floatbeat/
 
 - [x] Validate the stack and measure the real cost
 - [x] Write the corrected specification
-- [x] Phase 1 — floating window + procedural avatar + oscillator
+- [x] Phase 1 — floating window + procedural avatar + oscillator (v0.1.0)
 - [ ] Phase 2 — MPRIS2 metadata and controls
 - [ ] Phase 3 — system audio capture + bands
 - [ ] Phase 4 — expandable panel and settings

@@ -103,7 +103,8 @@ muestra el icono de pausa y si los controles están activos.
 - Avatar dibujado con `QPainter`: cubo biselado, visor único, 4 barras.
 - Amplitudes alimentadas por un oscilador de prueba (`--demo`).
 - **Aceptación:** 30 fps estables, ≤ 7 % de un núcleo, ≤ 2 ms de pintado por
-  frame, RSS ≤ 120 MB, drag correcto en GNOME Wayland y en X11.
+  frame, RSS ≤ 120 MB, drag correcto en GNOME Wayland y en X11, y posición
+  inicial en la esquina superior derecha del área de trabajo.
 
 ### Fase 2 — MPRIS2
 - Descubrimiento reactivo de reproductores; selección del activo.
@@ -139,6 +140,13 @@ muestra el icono de pausa y si los controles están activos.
 
 ### X11 / XWayland
 Soporte completo: posición absoluta, stacking, transparencia y drag.
+
+### Posición por defecto
+El widget se ancla a `QScreen.availableGeometry()`, no a `geometry()`: el área de
+trabajo ya excluye paneles y docks, así que en GNOME aparece bajo la barra
+superior (32 px de strut medidos) y en KDE/XFCE sigue al panel esté donde esté.
+Anclas: arriba/abajo × izquierda/derecha, margen configurable (24 px). Ver
+ADR-013. No se integra *dentro* del panel: eso requiere un plugin por escritorio.
 
 ### Wayland nativo
 - `WindowStaysOnTopHint` **puede ser ignorado** por el compositor.
@@ -183,7 +191,8 @@ Técnicas obligatorias para cumplirlo:
 | --- | --- |
 | Arrastrar | Mover el widget (`startSystemMove`) |
 | Clic | Expandir/colapsar el panel |
-| Clic derecho | Menú: ajustes, siempre visible, salir |
+| Clic derecho | Menú: pausa, posición, salir |
+| Clic derecho → Posición | Anclar a cualquier esquina del área de trabajo |
 | Rueda sobre el cubito | Volumen del reproductor activo |
 | Clic en ojos (mantener) | "Scratch" visual, sin efecto en el audio |
 

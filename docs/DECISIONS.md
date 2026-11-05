@@ -242,3 +242,58 @@ micro-optimizar el widget.
 **Alternativas descartadas:** rotar la placa del visor (0.65 ms/frame por 2.6°);
 tres regiones de daño separadas (más caras que una sola); `QOpenGLWidget`
 (añade superficie y memoria para un ahorro que no se midió).
+
+---
+
+## ADR-013 — Posición anclada al área de trabajo, no dentro del panel
+
+**Estado:** aceptada · 2026-11-06
+
+**Contexto:** el requisito es que el widget aparezca arriba, junto al reloj, en la
+posición donde el usuario tenga su barra.
+
+**Decisión:** anclar a `QScreen.availableGeometry()` (el área de trabajo, que el
+escritorio ya recorta para excluir paneles y docks), con anclas configurables
+(arriba/abajo × izquierda/derecha) y margen de 24 px. Por defecto, arriba derecha.
+
+**Evidencia:** en esta máquina, GNOME expone `geometry=1920x1080` y
+`availableGeometry=1920x1048` en `y=32`: el panel superior son exactamente 32 px
+de strut. Anclar al área de trabajo coloca el widget en `(1676, 56)`, justo bajo
+la barra, sin código específico de GNOME. Con el panel abajo o a la izquierda el
+mismo cálculo lo sigue.
+
+**Consecuencias:** no se necesita extensión de GNOME, plasmoides de KDE ni plugin
+de XFCE. El widget no puede *vivir dentro* de la barra: eso exigiría tres
+codebases distintas. Se documenta como limitación consciente en `docs/USAGE.md`.
+
+**Alternativas descartadas:** detectar el panel por nombre de DE (frágil y
+duplica lógica); integración por plugin (fuera de alcance de un widget Qt);
+`layer-shell` con zona exclusiva (GNOME no lo implementa, ADR-003).
+
+---
+
+## ADR-014 — Documentación en el repo, no en la wiki de GitHub
+
+**Estado:** aceptada · 2026-11-06
+
+**Contexto:** se barajó una wiki (de GitHub o una web aparte) para uso, dudas y
+FAQ.
+
+**Decisión:** `docs/` dentro del repositorio, con `README.md` como portada,
+`docs/USAGE.md` para usuarios y `docs/SPEC.md` / `DECISIONS.md` / `BENCHMARKS.md`
+para ingeniería. Si más adelante hace falta una web, se publica `docs/` con
+MkDocs Material en GitHub Pages.
+
+**Evidencia/razón:** la wiki de GitHub es un repositorio git separado: no se
+revisa en los PR, no viaja con los tags, no se puede validar en CI y se
+desincroniza del código que documenta. Con docs-as-code, un cambio de
+comportamiento y su documentación van en el mismo commit, y el enlace
+`docs/USAGE.md` funciona igual en el repo, en un clon offline y en la web
+generada.
+
+**Consecuencias:** una sola fuente de verdad y cero mantenimiento duplicado. La
+wiki queda reservada, si acaso, para notas comunitarias que no dependan del
+código.
+
+**Alternativas descartadas:** wiki de GitHub (duplica y envejece); web propia
+desde el día uno (coste de mantenimiento sin usuarios todavía).

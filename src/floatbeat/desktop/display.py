@@ -3,14 +3,30 @@
 Wayland deliberately does not let a client position a top-level window or decide
 its stacking order. XWayland still does, so we default to it when both backends
 are available. See docs/DECISIONS.md (ADR-003).
+
+Placement is anchored to the *available* geometry, which the desktop already
+shrinks to exclude panels and docks. That is how Floatbeat ends up under the top
+bar (next to the clock on GNOME, or wherever the user moved their panel) without
+needing a compositor-specific plugin.
 """
 
 from __future__ import annotations
 
 import os
 
-from PySide6.QtCore import QPoint
-from PySide6.QtGui import QGuiApplication
+from PySide6.QtCore import QPoint, QRect, QSize
+from PySide6.QtGui import QGuiApplication, QScreen
+
+DEFAULT_ANCHOR = "top-right"
+DEFAULT_MARGIN = 24
+ANCHORS = ("top-right", "top-left", "bottom-right", "bottom-left")
+
+ANCHOR_LABELS = {
+    "top-right": "Arriba derecha",
+    "top-left": "Arriba izquierda",
+    "bottom-right": "Abajo derecha",
+    "bottom-left": "Abajo izquierda",
+}
 
 
 def prefer_xwayland() -> str:
@@ -33,35 +49,54 @@ def prefer_xwayland() -> str:
     return "wayland"
 
 
-def default_position(size, margin: int = 36) -> QPoint:
-    """Bottom-right corner of the primary screen, inset by ``margin``."""
-    screen = QGuiApplication.primaryScreen()
-    if screen is None:
+def anchor_position(
+    area: QRect,
+    size: QSize,
+    anchor: str = DEFAULT_ANCHOR,
+    margin: int = DEFAULT_MARGIN,
+) -> QPoint:
+    """Top-left corner for a window of ``size`` inside ``area`` (work area)."""
+    if anchor not in ANCHORS:
+        raise ValueError(f"unknown anchor: {anchor!r}")
+    x = area.x() + area.width() - size.width() - margin if anchor.endswith("right") else area.x() + margin
+    y = area.y() + margin if anchor.startswith("top") else area.y() + area.height() - size.height() - margin
+    return QPoint(x, y)
+
+
+def position_for_anchor(
+    anchor: str = DEFAULT_ANCHOR,
+    size: QSize | None = None,
+    margin: int = DEFAULT_MARGIN,
+    screen: QScreen | None = None,
+) -> QPoint:
+    """Same as :func:`anchor_position`, resolved against a real screen."""
+    target = screen or QGuiApplication.primaryScreen()
+    if target is None:
         return QPoint(margin, margin)
-    area = screen.availableGeometry()
-    return QPoint(
-        area.right() - size.width() - margin,
-        area.bottom() - size.height() - margin,
-    )
+    return anchor_position(target.availableGeometry(), size or QSize(220, 220), anchor, margin)
 
 
-def is_on_some_screen(pos: QPoint, size) -> bool:
+def default_position(size: QSize) -> QPoint:
+    """First-run position: top-right of the work area, under the panel."""
+    return position_for_anchor(DEFAULT_ANCHOR, size)
+
+
+def is_on_some_screen(pos: QPoint, size: QSize) -> bool:
     """True when at least part of a window at ``pos`` is reachable."""
-    window_rect = (pos.x(), pos.y(), size.width(), size.height())
+    window_rect = QRect(pos, size)
     for screen in QGuiApplication.screens():
-        area = screen.availableGeometry()
-        if (
-            window_rect[0] + window_rect[2] > area.left()
-            and window_rect[0] < area.right()
-            and window_rect[1] + window_rect[3] > area.top()
-            and window_rect[1] < area.bottom()
-        ):
+        if screen.availableGeometry().intersects(window_rect):
             return True
     return False
 
 
-def restore_window_position(saved: QPoint | None, size) -> QPoint:
-    """Use the saved position if it is still visible, else a safe default."""
+def restore_window_position(
+    saved: QPoint | None,
+    size: QSize,
+    anchor: str = DEFAULT_ANCHOR,
+    margin: int = DEFAULT_MARGIN,
+) -> QPoint:
+    """Use the saved position if it is still visible, else the anchor."""
     if isinstance(saved, QPoint) and is_on_some_screen(saved, size):
         return saved
-    return default_position(size)
+    return position_for_anchor(anchor, size, margin)
