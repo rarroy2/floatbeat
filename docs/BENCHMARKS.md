@@ -49,30 +49,94 @@ PySide6 6.12.0 sobre CPython 3.14.8, sin GPU dedicada en el render de Qt
    ese espacio son bibliotecas de Qt compartidas con otras apps.
 4. **El reposo sí llega a cero.** Con el timer parado y sin stream de audio, el
    proceso no despierta. Esto valida el requisito central del proyecto.
-5. **La CPU a 30 fps está por encima del objetivo** (5.7–7.7 % frente a ≤ 3 %).
-   Este es el trabajo de optimización real de la Fase 1, no un problema del
-   lenguaje: el prototipo repinta la ventana completa con antialiasing en cada
-   frame. Ver abajo.
+5. **El prototipo costaba 5.7–7.7 % de CPU a 30 fps.** La implementación de la
+   Fase 1 lo deja en 6.3–6.5 % con 30 fps reales (1.33 ms de pintado por frame).
+   3 % no es alcanzable en este stack; el presupuesto se corrigió a 7 %.
 6. **Wayland no permite saber dónde está la ventana.** `move(760, 380)` y luego
    `frameGeometry()` devuelven `(760, 380)` en ambos backends, pero en Wayland
    ese valor es la intención en caché del cliente: el compositor decide la
    posición real y no hay API para consultarla. En XWayland sí es autoritativo.
 
+## Fase 1: implementación real
+
+Una vez escrito el widget, mismas condiciones (220×220, demo de 124 BPM, 30 fps):
+
+| Métrica | Valor |
+| --- | --- |
+| RSS animando | 85.6 MB |
+| PSS animando | 55.9 MB |
+| CPU a 30 fps | 6.3–6.5 % de un núcleo |
+| `paintEvent` | 1.33 ms por frame |
+| RSS en pausa | 85.9 MB |
+| CPU en pausa | 0.00 % |
+
+Desglose del primer `paintEvent` medido, antes de optimizar:
+
+| Pieza | Coste |
+| --- | --- |
+| Visor (glow 7 px + AA + rotación) | 2.5 ms |
+| Barras (10 rectángulos redondeados) | 0.3 ms |
+| LED | 0.05 ms |
+| Blit del cuerpo cacheado | 0.28 ms |
+
+### Iteraciones
+
+| Versión | paint | CPU |
+| --- | --- | --- |
+| Primera (glow + rotación + 3 updates) | 3.65 ms | 12.8 % a 25 fps |
+| Placa del visor cacheada en `QImage` | 2.13 ms | 7.6 % a 25 fps |
+| Sin rotación del visor (mirada lateral) | 1.48 ms | 5.7 % a 25 fps |
+| Ojos sólidos + histéresis del timer | 1.33 ms | 6.4 % a 30 fps |
+
+La última fila sube de CPU porque por fin corre a 30 fps reales: el coste **por
+frame** bajó de 3.65 a 1.33 ms, un 64 % menos.
+
+### Hallazgos de la fase 1
+
+- El trazo de glow de 7 px con antialiasing era el 68 % del coste de pintado.
+  Cachearlo como imagen lo reduce a un blit.
+- Rotar el visor 2.6° cuesta 0.65 ms/frame. Se sustituyó por un desplazamiento
+  horizontal de los ojos según el balance espectral.
+- `setInterval()` en cada frame reinicia el `QTimer` y la tasa cae a ~25 fps. Con
+  histéresis (1 s de silencio antes de bajar a 24 fps) se recuperan 30.2 fps.
+- El suelo del stack es ~1.1 ms/frame solo con el cuerpo y el bucle de eventos
+  (2.7 % a 25 fps). **3 % a 30 fps no es alcanzable**; el presupuesto se fijó en
+  7 % con esta evidencia.
+
 ## Backlog de optimización (Fase 1)
 
-- [ ] Cachear el cuerpo estático del cubo en un `QPixmap` y dibujarlo con
-      `drawPixmap`, dejando para el frame solo ojos y barras.
-- [ ] Repintar por regiones sucias (`update(QRect)`) en vez de la ventana entera.
-- [ ] Bajar a 24 fps cuando el RMS es bajo; 30 fps solo en picos.
-- [ ] Evitar `Antialiasing` en las barras (rectángulos redondeados ya se ven
-      bien) y limitarlo al cubo/visor.
-- [ ] Medir de nuevo con `Qsg`/RHI si el repintado parcial no basta; no se
-      adopta OpenGL por defecto porque añade superficie y memoria.
+- [x] Cachear el cuerpo estático en una imagen y dibujarlo con un blit.
+- [x] Cachear la placa del visor (glow incluido) en lugar de trazar 7 px con AA
+      cada frame: 3.65 → 2.13 ms.
+- [x] Eliminar la rotación del visor (2.6° costaba 0.65 ms) y sustituirla por
+      mirada lateral de los ojos.
+- [x] Un solo `update()` por frame en vez de tres.
+- [x] Histéresis en el intervalo del timer (el `setInterval` por frame hundía la
+      tasa a 25 fps).
 - [ ] Repetir la medición con 600×260 (panel expandido) para conocer el techo.
+- [ ] Medir con `devicePixelRatio = 2` (HiDPI): el coste de pintado se multiplica
+      por 4 en píxeles.
+- [ ] Convertir estas cifras en `tools/bench.py` versionado, ejecutable en CI.
+
+## Lo que no funcionó
+
+- **Tres `update()` por frame** (visor, barras, LED) en lugar de uno: 12.8 % de
+  CPU frente a 13.3 %. Cada actualización cuesta su propio evento de pintado y
+  la ganancia de área no compensa.
+- **`QImage` en vez de `QPixmap`** para el cuerpo: sin cambio medible. El
+  `QPainter` de widgets ya rasteriza; el cuello de botella era el trazo, no el
+  blit.
+- **Bajar a 24 fps** no compensa: ahorra ~1.3 puntos de CPU y se nota en la
+  animación. Se mantiene como modo silencioso, no como ajuste general.
 
 ## Reproducir
 
-El prototipo vive fuera del repo a propósito (es un experimento, no código de
-producción). Cuando exista `src/floatbeat`, el benchmark se convertirá en un
-script versionado dentro de `tools/bench.py` para que estos números se puedan
-repetir en CI y en otras máquinas.
+```bash
+python -m floatbeat                 # demo en marcha
+FLOATBEAT_STATS=1 python -m floatbeat   # fps / paints/s / CPU / paint ms / RSS
+python tools/preview.py             # PNG sin ventana (offscreen)
+```
+
+El prototipo original de la fase 0 vivió fuera del repo a propósito. Las cifras
+de arriba salen del binario real con `FLOATBEAT_STATS=1`, no de un benchmark
+sintético.

@@ -2,15 +2,39 @@
 
 > A tiny DJ that lives on your Linux desktop and moves to whatever is playing.
 
-**Status: pre-alpha — specification phase.** There is no runnable code yet. The
-architecture, performance budget and scope are being validated before the first
-line ships (see [`docs/SPEC.md`](docs/SPEC.md) and
-[`docs/DECISIONS.md`](docs/DECISIONS.md)).
+**Status: alpha — Phase 1.** The floating window, the procedural avatar and the
+demo signal are working. Real audio capture and MPRIS metadata are next
+(see [`docs/SPEC.md`](docs/SPEC.md)).
+
+![Floatbeat avatar reacting to the demo signal](docs/media/preview.png)
 
 Floatbeat is a frameless, transparent, always-on-top widget: a small cube-shaped
 DJ with a visor for eyes that bobs and scratches to the audio coming out of your
 machine, while showing what is playing and letting you control it. When nothing
 is playing, it stops drawing entirely.
+
+## Try it
+
+```bash
+git clone https://github.com/rarroy2/floatbeat.git
+cd floatbeat
+uv venv --python 3.13
+uv pip install -e ".[dev]"
+python -m floatbeat
+```
+
+- **Drag** anywhere on the character to move it.
+- **Click** to poke it.
+- **Right-click** for the menu: pause, reset position, quit.
+
+```bash
+python -m floatbeat --no-demo   # resting pose, render timer stopped
+FLOATBEAT_STATS=1 python -m floatbeat   # print fps / CPU / RSS every 5 s
+```
+
+The animation comes from a synthetic 124 BPM source until the real capture
+lands: kick, snare, hats and a bass swell, so the bars, the eyes and the LED have
+something musical to react to.
 
 ## Why another desktop pet?
 
@@ -20,20 +44,10 @@ living on the desktop. Floatbeat is built the other way around:
 - **Linux first**: MPRIS2 over D-Bus for metadata and controls, PipeWire or
   PulseAudio for the audio signal.
 - **Signal-driven, not timer-driven**: the animation clock only runs while there
-  is actual audio. Paused means zero repaints.
+  is audio. Paused means zero repaints.
 - **No portable-runtime blur**: rendered with `QPainter`, not GIFs or Lottie, so
   edges stay clean on any DPI.
 - **Small surface, honest budget**: one widget, no web engine, no Electron.
-
-## Planned features (v0.1)
-
-- Borderless, transparent window that stays on top and can be dragged.
-- Reactive visualizer driven by the system output monitor (3–5 bands).
-- MPRIS2 metadata: title, artist, album art, playback status.
-- Playback controls: play/pause, previous/next, seek.
-- Expandable panel on click, with a settings page.
-- Eyes follow the cursor (opt-in, throttled to 20 Hz).
-- Idle mode stops the render timer and releases the audio stream.
 
 ## How it works
 
@@ -61,16 +75,17 @@ enriches and controls; it does not gate the animation.
 
 ## Performance budget
 
-Measured on GNOME/Wayland (XWayland), 12 threads, 1920×1080 @ 1× with a
-throwaway 220×220 prototype. Full methodology in
+Measured on GNOME/Wayland (XWayland), 12 threads, 1920×1080 @ 1×, PySide6 6.12
+on CPython 3.14. Full methodology and the optimisation log in
 [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md).
 
-| Metric | Prototype (naive) | Budget v0.1 |
+| Metric | Phase 1 | Budget |
 | --- | --- | --- |
-| RSS, window visible | 83 MB | ≤ 120 MB |
-| PSS, window visible | 53.5 MB | ≤ 65 MB |
-| CPU, 30 fps | 5.7–7.7 % of one core | ≤ 3 % |
-| CPU, paused | 0.00–0.24 % | ≈ 0 % |
+| RSS, animating | 85.6 MB | ≤ 120 MB |
+| PSS, animating | 55.9 MB | ≤ 65 MB |
+| CPU, 30 fps | 6.3–6.5 % of one core | ≤ 7 % |
+| CPU, paused | 0.00 % | ≈ 0 % |
+| Paint time | 1.3 ms / frame | ≤ 2 ms |
 
 A 40 MB target is not reachable with Qt: importing `PySide6.QtWidgets` alone
 costs 43.8 MB RSS before any window exists. The budget above is the honest one.
@@ -82,42 +97,45 @@ costs 43.8 MB RSS before any window exists. The budget above is the honest one.
 - Python 3.12+ (PySide6 6.12 wheels are available for 3.14).
 - D-Bus session bus for MPRIS.
 
-## Development
+## Wayland note
+
+A Wayland client cannot choose its own position or stacking order, so Floatbeat
+starts under **XWayland by default** when both backends are present. If you want
+the native path anyway:
 
 ```bash
-git clone https://github.com/rarroy2/floatbeat.git
-cd floatbeat
-uv venv --python 3.13
-uv pip install -e ".[dev]"
-python -m floatbeat
+FLOATBEAT_NATIVE_WAYLAND=1 python -m floatbeat
 ```
 
-Until Phase 1 lands, `python -m floatbeat` does nothing: the package does not
-exist yet.
+Expect the compositor to place the widget where it wants. Details in
+[`docs/DECISIONS.md`](docs/DECISIONS.md) (ADR-003).
 
-## Project layout (planned)
+## Project layout
 
 ```
 floatbeat/
 ├── src/floatbeat/
-│   ├── __main__.py        # QApplication lifecycle
-│   ├── ui/widget.py       # frameless window, drag, expand/collapse
-│   ├── ui/avatar.py       # procedural DJ + bars (QPainter)
-│   ├── ui/panel.py        # metadata, controls, settings
-│   ├── audio/mpris.py     # QtDBus MPRIS2 client
-│   ├── audio/capture.py   # parec subprocess → PCM frames
-│   └── audio/analysis.py  # RMS + band energy
-├── assets/                # icon, .desktop, metainfo
-├── packaging/             # flatpak manifest, AppImage recipe
-├── docs/
-└── tests/
+│   ├── __main__.py        # CLI and QApplication lifecycle
+│   ├── app.py             # clock, state, frame loop
+│   ├── ui/
+│   │   ├── widget.py      # frameless window, drag, menu, position memory
+│   │   ├── avatar.py      # procedural cube + visor + bars (QPainter)
+│   │   └── theme.py       # palette
+│   ├── audio/
+│   │   ├── analysis.py    # RMS, envelope, 4-band split (no Qt)
+│   │   └── demo.py        # synthetic 124 BPM source
+│   └── desktop/
+│       └── display.py     # XWayland preference, position restore
+├── tools/preview.py       # render the avatar to PNG without a display
+├── tests/
+└── docs/
 ```
 
 ## Roadmap
 
 - [x] Validate the stack and measure the real cost
 - [x] Write the corrected specification
-- [ ] Phase 1 — floating window + procedural avatar + oscillator
+- [x] Phase 1 — floating window + procedural avatar + oscillator
 - [ ] Phase 2 — MPRIS2 metadata and controls
 - [ ] Phase 3 — system audio capture + bands
 - [ ] Phase 4 — expandable panel and settings
@@ -129,9 +147,9 @@ floatbeat/
 Floatbeat's initial inspiration is [Coucou](https://github.com/louis-cfm/coucou)
 by Louis Raillé (MIT code, reserved name and assets). Floatbeat **does not reuse
 any Coucou code, art, sound or naming**, and is deliberately built around a
-different silhouette (beveled cube, single wrap-around visor) and a different
-animation language. The credit is here because honesty about inspiration is
-cheaper than defending a clone accusation.
+different silhouette (beveled cube, headphone band, single wrap-around visor)
+and a different animation language. The credit is here because honesty about
+inspiration is cheaper than defending a clone accusation.
 
 ## License
 

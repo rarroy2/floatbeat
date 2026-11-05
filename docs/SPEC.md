@@ -56,12 +56,12 @@ floatbeat/
 │   ├── panel.py         # metadata, controles, ajustes
 │   └── theme.py         # paleta, radios, tipografía
 ├── audio/
-│   ├── mpris.py         # cliente MPRIS2 sobre QtDBus
-│   ├── capture.py       # parec → frames PCM normalizados
-│   └── analysis.py      # RMS + energía por banda con suavizado
-└── platform/
-    ├── display.py       # detección X11/Wayland/XWayland, posición
-    └── idle.py          # parada/arranque del render y del stream
+│   ├── mpris.py         # cliente MPRIS2 sobre QtDBus      (fase 2)
+│   ├── capture.py       # parec → frames PCM normalizados  (fase 3)
+│   ├── analysis.py      # RMS + bandas con suavizado
+│   └── demo.py          # fuente sintética 124 BPM (fase 1)
+└── desktop/
+    └── display.py       # preferencia XWayland, restauración de posición
 ```
 
 ### Flujo de datos
@@ -102,8 +102,8 @@ muestra el icono de pausa y si los controles están activos.
 - Arrastre con `windowHandle().startSystemMove()` (funciona en X11 y Wayland).
 - Avatar dibujado con `QPainter`: cubo biselado, visor único, 4 barras.
 - Amplitudes alimentadas por un oscilador de prueba (`--demo`).
-- **Aceptación:** 30 fps estables, ≤ 3 % de un núcleo, RSS ≤ 120 MB, drag
-  correcto en GNOME Wayland y en X11.
+- **Aceptación:** 30 fps estables, ≤ 7 % de un núcleo, ≤ 2 ms de pintado por
+  frame, RSS ≤ 120 MB, drag correcto en GNOME Wayland y en X11.
 
 ### Fase 2 — MPRIS2
 - Descubrimiento reactivo de reproductores; selección del activo.
@@ -160,15 +160,21 @@ audio, el widget arranca en modo "solo MPRIS" (barras planas) sin fallar.
 | --- | --- |
 | RSS con ventana | ≤ 120 MB |
 | PSS con ventana | ≤ 65 MB |
-| CPU a 30 fps | ≤ 3 % de un núcleo |
-| CPU en pausa | 0 repintados, timer parado |
+| CPU a 30 fps | ≤ 7 % de un núcleo |
+| CPU en pausa | 0 repintados, timer parado (0.00 % medido) |
 | Latencia audio → píxel | < 80 ms |
 | Arranque en frío | < 700 ms |
 
 Técnicas obligatorias para cumplirlo:
-- Cachear el cuerpo del avatar en un `QPixmap` y repintar solo las zonas sucias.
-- Limitar `update()` a `QRect` de barras/ojos, no a toda la ventana.
-- Bajar a 24 fps cuando el RMS es bajo; 30 fps solo en `mixing`.
+- Cachear el cuerpo **y la placa del visor (con su glow)** como `QImage`; en el
+  frame solo se dibujan ojos, barras y LED.
+- Un único `update()` por frame (un solo evento de pintado): tres regiones
+  separadas midieron más caras que una sola.
+- No rotar el visor: 2.6° de rotación cuestan 0.65 ms/frame. El balance
+  espectral mueve la mirada de los ojos en su lugar.
+- Bajar a 24 fps solo tras 1 s de silencio; volver a 30 fps en el primer frame
+  con nivel. Cambiar el intervalo cada frame reinicia el `QTimer` y deja la tasa
+  real en ~25 fps.
 - No usar `QGraphicsView`, ni QML, ni composición por capas extra.
 
 ## 8. Interacción

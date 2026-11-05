@@ -217,3 +217,28 @@ animación ligada al RMS y no a un reproductor concreto.
 **Consecuencias:** el README acredita la inspiración de forma explícita. Ante
 duda de diseño, se elige lo que se aleje del referente, no lo que sea más fácil
 de copiar.
+
+---
+
+## ADR-012 — Render en dos capas y presupuesto de CPU del 7 %
+
+**Estado:** aceptada · 2026-11-06
+
+**Contexto:** la Fase 1 exigía ≤ 3 % de un núcleo a 30 fps. La primera
+implementación gastaba 12.8 % y el prototipo de la fase 0, 7.3 %.
+
+**Decisión:** cachear cuerpo y placa del visor (glow incluido) como `QImage`; un
+solo `update()` por frame; sin rotación del visor; presupuesto de ≤ 7 %.
+
+**Evidencia:** el pintado bajó de 3.65 a 1.33 ms por frame y la CPU a 6.3–6.5 %
+con 30 fps reales, 0.00 % en pausa. El suelo del stack (solo cuerpo y bucle de
+eventos) es ~1.1 ms/frame, o 2.7 % a 25 fps: 3 % no es alcanzable optimizando el
+dibujo.
+
+**Consecuencias:** el README y la spec comunican 7 %. Bajar de ahí exigiría
+cambiar el modelo de ventana (surface propia en Wayland) o el toolkit, no
+micro-optimizar el widget.
+
+**Alternativas descartadas:** rotar la placa del visor (0.65 ms/frame por 2.6°);
+tres regiones de daño separadas (más caras que una sola); `QOpenGLWidget`
+(añade superficie y memoria para un ahorro que no se midió).
