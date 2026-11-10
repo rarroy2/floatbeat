@@ -1,0 +1,8 @@
+{
+  "uuid": "floatbeat@rarroy2.github.io",
+  "name": "Floatbeat",
+  "description": "A tiny DJ living in the top bar, hanging from the clock area.",
+  "shell-version": ["45", "46", "47", "48", "49", "50"],
+  "url": "https://github.com/rarroy2/floatbeat",
+  "version": 1
+}
