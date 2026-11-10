@@ -37,7 +37,7 @@ Branch names use kebab-case: `feat/phase-3-parec-capture`, not
 ```
 
 Types: `feat`, `fix`, `docs`, `chore`, `refactor`, `test`, `perf`.
-Scopes: `ui`, `audio`, `desktop`, `packaging`, `docs`, `deps`.
+Scopes: `extension`, `engine`, `ui`, `audio`, `desktop`, `packaging`, `docs`, `deps`.
 
 Examples:
 
@@ -67,8 +67,9 @@ Rules:
 | Breaking public behaviour (CLI flags, config keys, API) | `MAJOR` bump |
 
 While the project is `0.x`, `MAJOR` stays at 0 and the minor number marks
-phases: 0.1 floating window, 0.2 MPRIS, 0.3 audio, 0.4 panel, 0.5 packaging.
-The first stable release will be `1.0.0`.
+phases: 0.1 floating-window app (archived), 0.2 GNOME extension + engine +
+popover, 0.3 real audio, 0.4 packaging, 1.0 stable. Pre-releases use
+`0.2.0-alpha.1`, `0.2.0-beta.1`, etc.
 
 Every release gets:
 
@@ -98,12 +99,12 @@ Every release gets:
 ## Performance work
 
 Any change that touches painting, the frame loop or audio processing must come
-with measurements. The protocol is in
-[`docs/BENCHMARKS.md`](BENCHMARKS.md):
+with measurements.
 
-```bash
-FLOATBEAT_STATS=1 python -m floatbeat
-```
+For the extension, compare `gnome-shell` CPU with the extension enabled and
+disabled (the actor is 56×38, so the difference must be small). For the future
+engine and popover, the `FLOATBEAT_STATS=1` protocol described in
+[`docs/BENCHMARKS.md`](BENCHMARKS.md) will return.
 
 Report CPU as a percentage of **one core** (the `top` unit) and state the thread
 count, because "6 %" means very different things on a dual-core and a 16-thread

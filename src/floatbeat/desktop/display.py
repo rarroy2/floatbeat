@@ -17,13 +17,22 @@ import os
 from PySide6.QtCore import QPoint, QRect, QSize
 from PySide6.QtGui import QGuiApplication, QScreen
 
-DEFAULT_ANCHOR = "top-right"
-DEFAULT_MARGIN = 24
-ANCHORS = ("top-right", "top-left", "bottom-right", "bottom-left")
+DEFAULT_ANCHOR = "top-center"
+DEFAULT_MARGIN = 0
+ANCHORS = (
+    "top-center",
+    "top-right",
+    "top-left",
+    "bottom-center",
+    "bottom-right",
+    "bottom-left",
+)
 
 ANCHOR_LABELS = {
+    "top-center": "Arriba centro",
     "top-right": "Arriba derecha",
     "top-left": "Arriba izquierda",
+    "bottom-center": "Abajo centro",
     "bottom-right": "Abajo derecha",
     "bottom-left": "Abajo izquierda",
 }
@@ -58,7 +67,12 @@ def anchor_position(
     """Top-left corner for a window of ``size`` inside ``area`` (work area)."""
     if anchor not in ANCHORS:
         raise ValueError(f"unknown anchor: {anchor!r}")
-    x = area.x() + area.width() - size.width() - margin if anchor.endswith("right") else area.x() + margin
+    if anchor.endswith("right"):
+        x = area.x() + area.width() - size.width() - margin
+    elif anchor.endswith("left"):
+        x = area.x() + margin
+    else:
+        x = area.x() + (area.width() - size.width()) // 2
     y = area.y() + margin if anchor.startswith("top") else area.y() + area.height() - size.height() - margin
     return QPoint(x, y)
 

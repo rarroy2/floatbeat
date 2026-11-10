@@ -1,5 +1,11 @@
 # Benchmarks — por qué el presupuesto cambió
 
+> **Histórico.** Estos números describen la app de ventana flotante de v0.1.0,
+> conservada en el tag `v0.1.0`. El proyecto actual es una extensión de GNOME
+> Shell; sus métricas se añadirán aquí cuando el motor y el popover existan.
+> La conclusión sigue siendo válida: Qt no baja de ~44 MB de RSS ni de 3 % de un
+> núcleo a 30 fps, y por eso el presupuesto se corrigió.
+
 Fecha: 2026-11-05. Todos los números son de esta máquina, no de una hoja de
 cálculo.
 
@@ -131,7 +137,10 @@ frame** bajó de 3.65 a 1.33 ms, un 64 % menos.
 
 ## Reproducir
 
+Estos comandos corresponden a la app de v0.1.0:
+
 ```bash
+git checkout v0.1.0
 python -m floatbeat                 # demo en marcha
 FLOATBEAT_STATS=1 python -m floatbeat   # fps / paints/s / CPU / paint ms / RSS
 python tools/preview.py             # PNG sin ventana (offscreen)
