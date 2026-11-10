@@ -1,158 +1,94 @@
 # Using Floatbeat
 
-Floatbeat is a small window, not a panel applet: it floats above the other
-windows, it can be dragged anywhere, and it can snap to a corner of your work
-area. This guide covers what it does today (v0.1) and the questions that come up
-most often.
+Floatbeat is a GNOME Shell extension: a tiny DJ that hangs in the top bar, left
+of the clock. It is not a floating window anymore (that was v0.1.0; see the tag).
 
-## Install and run
-
-Floatbeat is not packaged yet (that is Phase 5). From a checkout:
+## Install
 
 ```bash
 git clone https://github.com/rarroy2/floatbeat.git
 cd floatbeat
-uv venv --python 3.13
-uv pip install -e ".[dev]"
-python -m floatbeat
+./extension/install.sh
 ```
 
-With `pip` instead of `uv`:
+GNOME only scans the extensions directory at login, so **log out and back in**.
+Then:
 
 ```bash
-python -m venv .venv
-. .venv/bin/activate
-pip install -e ".[dev]"
-python -m floatbeat
+gnome-extensions enable floatbeat@rarroy2.github.io
 ```
 
-Useful flags:
+It should appear immediately, to the left of the clock.
 
-| Flag / variable | Effect |
-| --- | --- |
-| `--no-demo` | Start paused in the resting pose (render timer stopped) |
-| `--version` | Print the version |
-| `FLOATBEAT_STATS=1` | Print fps, paints/s, CPU, paint time and RSS every 5 s |
-| `FLOATBEAT_NATIVE_WAYLAND=1` | Use the native Wayland backend instead of XWayland |
+## What you see now (v0.2.0-alpha.1)
 
-## Controls
+- A 56×38 DJ with white body, cyan eyes, little arms and a mixer desk that
+  dangles 6 px below the bar.
+- It animates at 25 fps with a synthetic signal. Real playback comes with the
+  engine in the next phase.
+- Clicking it currently logs `[floatbeat] clicked` in the journal and makes the
+  character blink. The popover lands next.
 
-| Action | Result |
-| --- | --- |
-| Drag the character | Move the window |
-| Left click | Poke it (it blinks and bounces) |
-| Right click | Menu: pause, position, quit |
-| Right click → Posición en pantalla | Snap to a corner of the work area |
+The idle state (grey eyes, no bars, no animation when nothing is playing) and the
+translucent popover with album art and controls are the immediate next steps.
 
-The window remembers its position between runs. Moving it by hand does not
-change the selected anchor: the anchor is where "snap" goes, not a lock.
+## Disable or uninstall
 
-## Where it sits on screen
+```bash
+gnome-extensions disable floatbeat@rarroy2.github.io
+```
 
-The default is **top-right of the work area**. The work area is the part of the
-screen your desktop leaves free after panels and docks, so Floatbeat lands just
-below the top bar on GNOME (the bar with the clock) and follows the panel if you
-move it to the bottom or the left on KDE, XFCE or Cinnamon. There is nothing to
-configure on first run.
+To remove it completely:
 
-If your panel is on the right and you want the widget under it, pick
-"Arriba derecha" and increase the margin by editing `window/margin` in
-`~/.config/Floatbeat/Floatbeat.conf` (default 24 px).
+```bash
+rm -rf ~/.local/share/gnome-shell/extensions/floatbeat@rarroy2.github.io
+```
 
-> **Why not inside the bar, next to the clock?** That is not a floating window,
-> it is a panel plugin. Every desktop implements panels differently, so it would
-> need a GNOME Shell extension plus a KDE plasmoid plus an XFCE plugin — three
-> separate codebases. The work-area anchor gives 95 % of the effect with one
-> implementation. A panel plugin is a possible future project, not a setting.
-
-## What it costs
-
-Measured on GNOME/Wayland via XWayland, 12 threads, 1920×1080, PySide6 6.12 on
-CPython 3.14. Full method and every optimisation step in
-[`BENCHMARKS.md`](BENCHMARKS.md).
-
-| Metric | Measured | What it means |
-| --- | --- | --- |
-| CPU while animating at 30 fps | 6.4 % of one core | **0.53 % of a 12-thread CPU.** For comparison, GNOME Shell measured 16.2 % on the same machine |
-| CPU while paused / silent | 0.00 % | The timer stops and the process sleeps; no repaints at all |
-| RAM (RSS / PSS) | 85.6 / 55.9 MB | About one browser tab; most of it is Qt shared with other apps |
-| Paint time | 1.33 ms per frame | 30 fps with headroom |
-| Startup | under 1 s | No background service, no index, no cache to warm |
-
-The 6.4 % figure sounds bigger than it feels because it is **a percentage of a
-single core**, the unit `top` and `htop` use. On a 12-thread laptop that is half
-a percent of the machine, and it disappears entirely the moment playback stops.
-
-It is not free, though: on battery, a continuously animating widget costs roughly
-the same order as a blinking desktop clock. If you care about every watt, pause
-it from the right-click menu (or start with `--no-demo`); the cost goes to zero.
+You may also want to remove it from `org.gnome.shell enabled-extensions` in the
+Extensions app, or with `gsettings`.
 
 ## Troubleshooting
 
-### The widget appears in the wrong place
-
-You are probably on native Wayland, where a client cannot choose its position.
-Unset `FLOATBEAT_NATIVE_WAYLAND` so Floatbeat uses XWayland, then right-click →
-Posición en pantalla → pick a corner.
-
-### The window is blurry
-
-XWayland does not always pick up the compositor's scale factor. Try:
+### It does not appear after login
 
 ```bash
-QT_SCALE_FACTOR=1.5 python -m floatbeat
+gnome-extensions info floatbeat@rarroy2.github.io
+journalctl --user -b -o cat /usr/bin/gnome-shell | grep -i floatbeat | tail -30
 ```
 
-(Replace 1.5 with your monitor scale.) Native Wayland handles HiDPI better but
-loses absolute positioning.
+If `State` is `ERROR`, the journal has the stack trace. Disable it with
+`gnome-extensions disable ...` while fixing it.
 
-### Nothing reacts to my music
+### It is cut off at the bottom
 
-Expected in v0.1: audio capture lands in Phase 3. The motion you see comes from
-a synthetic 124 BPM demo source, so the visualiser can be developed and measured
-without touching your audio.
+Some GNOME versions or themes may clip panel children that overflow. The fix is
+to reduce `OVERFLOW` in `extension/avatar.js` from 6 to 0; the character then
+fits entirely inside the 32 px bar.
 
-### It does not appear on the second monitor
+### It sits in the wrong place
 
-Drag it there. The anchor menu uses the primary screen's work area; manual
-positions on any screen are remembered.
+The actor is positioned from `Main.panel.statusArea.dateMenu`. If the clock is
+missing (unusual layouts), it falls back to the centre of the primary monitor.
 
-### The right-click menu does not open
+### I changed the code and nothing happens
 
-The window is only 220×220 px. Right-click on the character itself, not on the
-transparent margin around it.
+GNOME 50 does not implement `ReloadExtension`. Log out and back in after
+`./extension/install.sh`. For quick visual checks, the drawing can be rendered
+outside the shell:
 
-## FAQ
+```bash
+gjs -m /tmp/mini_preview.mjs   # see extension/README.md
+```
 
-**Does it need Spotify?** No. v0.1 does not talk to any player. Phase 2 adds
-MPRIS2 (Spotify, VLC, Firefox, Chromium, mpv…) and Phase 3 adds system audio, so
-games and calls work too.
+### Does it need Python?
 
-**Does it send anything to the internet?** No. There is no telemetry, no account
-and no network code in v0.1.
-
-**Why Python and Qt if the RAM target is low?** Because the alternative was a
-different toolkit, not a better widget: importing PySide6 alone costs 43.8 MB
-before any window exists. The trade-off is documented in
-[`DECISIONS.md`](DECISIONS.md) (ADR-001/ADR-002).
-
-**Why 6 % and not 3 %?** The original budget was 3 %; measurement showed the
-floor of Qt widgets is ~2.7 % before drawing anything. The honest budget is 7 %,
-and every step to get there is in [`BENCHMARKS.md`](BENCHMARKS.md). The README
-does not promise numbers it cannot reproduce.
-
-**Can I have two instances?** Not yet; there is no single-instance lock. It is
-on the Phase 4 list.
-
-**Will it run on Windows?** The UI already is portable Qt. Audio capture and
-metadata need native APIs (WASAPI loopback and GSMTC); that is a post-1.0 task,
-not a rewrite.
+Not for the bar. The Python engine (MPRIS, audio levels, popover) is optional and
+lands in the next phase. Without it the extension shows the idle state.
 
 ## Reporting problems
 
 Open an issue at <https://github.com/rarroy2/floatbeat/issues> with:
 
-- your desktop and session type (`echo $XDG_CURRENT_DESKTOP $XDG_SESSION_TYPE`),
-- the output of `python -m floatbeat --version`,
-- and, if it is a performance problem, the lines printed with
-  `FLOATBEAT_STATS=1`.
+- `gnome-shell --version` and your session type (`echo $XDG_SESSION_TYPE`),
+- the output of `gnome-extensions info floatbeat@rarroy2.github.io`,
+- and the journal lines above.

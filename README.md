@@ -1,178 +1,106 @@
 # Floatbeat
 
-> A tiny DJ that lives on your Linux desktop and moves to whatever is playing.
+> A tiny DJ living in your GNOME top bar.
 
-**Status: v0.1.0 — Phase 1.** The floating window, the procedural avatar and the
-demo signal are working. Real audio capture and MPRIS metadata are next
-(see [`docs/SPEC.md`](docs/SPEC.md)).
+**Status: v0.2.0-alpha.1 — GNOME Shell extension spike.** The mini DJ is already
+hanging next to the clock. The idle/playing states, the Python engine and the
+translucent mixer are the next steps.
 
-Full usage guide, FAQ and troubleshooting: [`docs/USAGE.md`](docs/USAGE.md).
+![Floatbeat mini avatar in the top bar](docs/media/preview-mini.png)
 
-![Floatbeat avatar reacting to the demo signal](docs/media/preview.png)
+Floatbeat started as a floating window (v0.1.0) and pivoted to a GNOME Shell
+extension: a window that is always visible *without covering window titles* can
+only live in space the desktop already reserves — the panel. The full story is
+in [`docs/DECISIONS.md`](docs/DECISIONS.md) (ADR-015).
 
-Floatbeat is a frameless, transparent, always-on-top widget: a small cube-shaped
-DJ with a visor for eyes that bobs and scratches to the audio coming out of your
-machine, while showing what is playing and letting you control it. When nothing
-is playing, it stops drawing entirely.
+## What works right now
 
-## Try it
+- A 56×38 actor in the top panel, just left of the clock, drawn with Cairo.
+- It overflows 6 px below the bar: the panel does not clip its children, so the
+  mixer desk appears to dangle from the edge.
+- 25 fps animation driven by a synthetic signal, with cyan eyes, arms that lean
+  with the beat and a five-bar EQ.
+- Clicking it is wired (it currently logs and blinks; the engine call lands next).
+- The blob renderer for the future popover is in place and previewed below.
+
+![Blob avatar for the popover](docs/media/preview-blob.png)
+
+## What's next
+
+1. **Idle state**: when nothing is playing, grey eyes, no bars, no animation.
+2. **Python engine**: MPRIS2 metadata/controls plus a D-Bus service that
+   publishes the audio level. The bar stays in GJS; the engine does the rest.
+3. **Translucent popover**: big character, album art, title, artist and playback
+   controls, opened by clicking the desk.
+4. **Real audio**: replace the synthetic source with `parec` on the sink monitor.
+5. **Packaging**: extension zip, engine as a systemd user service, release flow.
+
+## Install (extension)
 
 ```bash
-git clone https://github.com/rarroy2/floatbeat.git
-cd floatbeat
-uv venv --python 3.13
-uv pip install -e ".[dev]"
-python -m floatbeat
+./extension/install.sh
+# GNOME only scans extensions at login:
+# log out and back in
+gnome-extensions enable floatbeat@rarroy2.github.io
 ```
 
-- **Drag** anywhere on the character to move it.
-- **Click** to poke it.
-- **Right-click** for the menu: pause, corner anchor, quit.
-- It starts in the **top-right of the work area**, just below the panel (the bar
-  with the clock on GNOME), and follows the panel if you move it.
+Tested on GNOME Shell 50.6 (Wayland). The extension declares support for 45–50.
+
+To disable:
 
 ```bash
-python -m floatbeat --no-demo   # resting pose, render timer stopped
-FLOATBEAT_STATS=1 python -m floatbeat   # print fps / CPU / RSS every 5 s
+gnome-extensions disable floatbeat@rarroy2.github.io
 ```
-
-The animation comes from a synthetic 124 BPM source until the real capture
-lands: kick, snare, hats and a bass swell, so the bars, the eyes and the LED have
-something musical to react to.
-
-## Why another desktop pet?
-
-Most "notch companion" apps are macOS-first, or they decorate a bar instead of
-living on the desktop. Floatbeat is built the other way around:
-
-- **Linux first**: MPRIS2 over D-Bus for metadata and controls, PipeWire or
-  PulseAudio for the audio signal.
-- **Signal-driven, not timer-driven**: the animation clock only runs while there
-  is audio. Paused means zero repaints.
-- **No portable-runtime blur**: rendered with `QPainter`, not GIFs or Lottie, so
-  edges stay clean on any DPI.
-- **Small surface, honest budget**: one widget, no web engine, no Electron.
-
-## How it works
-
-```
-┌──────────────────┐     PropertiesChanged     ┌──────────────────┐
-│  MPRIS2 players   │ ────────(QtDBus)────────▶ │                  │
-│  Spotify, VLC,    │                           │   PlayerState    │
-│  Firefox, …       │ ◀──── Play()/Pause()────── │  (single source  │
-└──────────────────┘                           │   of truth)      │
-                                               │        │         │
-┌──────────────────┐     PCM 44.1 kHz mono     │        ▼         │
-│  sink.monitor     │ ────────(parec)─────────▶ │  RMS + bands     │
-└──────────────────┘                           └────────┬─────────┘
-                                                        │ 30 fps
-                                                        ▼
-                                               ┌──────────────────┐
-                                               │  QPainter avatar │
-                                               │  + bars + panel  │
-                                               └──────────────────┘
-```
-
-The audio level is authoritative: if there is signal, the widget animates even
-when no MPRIS player is publishing metadata (games, browsers, calls). MPRIS
-enriches and controls; it does not gate the animation.
-
-## What it costs you
-
-Measured on GNOME/Wayland (XWayland), 12 threads, 1920×1080 @ 1×, PySide6 6.12
-on CPython 3.14. Full methodology and the optimisation log in
-[`docs/BENCHMARKS.md`](docs/BENCHMARKS.md).
-
-| Metric | Measured | What it means |
-| --- | --- | --- |
-| CPU, 30 fps | 6.4 % of one core | **0.53 % of a 12-thread machine.** GNOME Shell measured 16.2 % on the same box |
-| CPU, paused | 0.00 % | Timer stopped; the process sleeps |
-| RSS / PSS | 85.6 / 55.9 MB | About one browser tab; most of it is shared Qt |
-| Paint time | 1.33 ms / frame | 30 fps with headroom |
-
-The percentage is **of a single core**, the unit `top` and `htop` show. In
-practice you will not notice the widget running, and it disappears completely
-when playback stops. It is not free on battery — roughly the same order as a
-blinking desktop clock — and pausing it takes one click.
-
-A 40 MB target is not reachable with Qt: importing `PySide6.QtWidgets` alone
-costs 43.8 MB RSS before any window exists, and 3 % of a core is below the floor
-of the widget stack (~2.7 % before drawing anything). The numbers above are the
-honest ones, reproducible with `FLOATBEAT_STATS=1`.
 
 ## Requirements
 
-- Linux (X11 or XWayland). Native Wayland works, with documented limits.
-- PipeWire or PulseAudio, with a monitor source on the default sink.
-- Python 3.12+ (PySide6 6.12 wheels are available for 3.14).
-- D-Bus session bus for MPRIS.
-
-## Where it sits
-
-The widget anchors to the **work area**, the part of the screen your desktop
-leaves free after panels and docks. On GNOME that means it appears right under
-the 32 px top bar, next to the clock area; on KDE or XFCE it follows the panel
-wherever you put it. Right-click → *Posición en pantalla* snaps it to any corner.
-
-It cannot live *inside* the panel: that is a plugin, not a window, and each
-desktop implements panels differently (GNOME Shell extension, KDE plasmoid,
-XFCE plugin). The work-area anchor is one implementation that works everywhere.
-
-## Wayland note
-
-A Wayland client cannot choose its own position or stacking order, so Floatbeat
-starts under **XWayland by default** when both backends are present. If you want
-the native path anyway:
-
-```bash
-FLOATBEAT_NATIVE_WAYLAND=1 python -m floatbeat
-```
-
-Expect the compositor to place the widget where it wants. Details in
-[`docs/DECISIONS.md`](docs/DECISIONS.md) (ADR-003).
+- GNOME Shell 45–50.
+- No Python process is needed for the bar itself; the engine will be optional
+  until the audio/MPRIS work lands.
 
 ## Project layout
 
 ```
 floatbeat/
+├── extension/            # GNOME Shell extension (GJS + Cairo)
+│   ├── extension.js      # panel placement, timer, click
+│   ├── avatar.js         # mini avatar drawing (56×38 design space)
+│   └── install.sh
 ├── src/floatbeat/
-│   ├── __main__.py        # CLI and QApplication lifecycle
-│   ├── app.py             # clock, state, frame loop
-│   ├── ui/
-│   │   ├── widget.py      # frameless window, drag, menu, position memory
-│   │   ├── avatar.py      # procedural cube + visor + bars (QPainter)
-│   │   └── theme.py       # palette
-│   ├── audio/
-│   │   ├── analysis.py    # RMS, envelope, 4-band split (no Qt)
-│   │   └── demo.py        # synthetic 124 BPM source
-│   └── desktop/
-│       └── display.py     # XWayland preference, position restore
-├── tools/preview.py       # render the avatar to PNG without a display
+│   ├── audio/            # RMS + bands + synthetic source (reused by the engine)
+│   ├── ui/blob.py        # avatar for the popover
+│   ├── ui/theme.py
+│   └── desktop/          # XWayland preference and screen helpers
+├── tools/preview.py      # render the popover avatar to PNG
 ├── tests/
 └── docs/
 ```
 
-## Roadmap
+The original floating-window app lives in the `v0.1.0` tag. It is kept as
+history: it proved the rendering budget (1.33 ms/frame, 6.4 % of one core) and
+the reasons why a normal window cannot satisfy the "always visible, never in the
+way" requirement.
 
-- [x] Validate the stack and measure the real cost
-- [x] Write the corrected specification
-- [x] Phase 1 — floating window + procedural avatar + oscillator (v0.1.0)
-- [ ] Phase 2 — MPRIS2 metadata and controls
-- [ ] Phase 3 — system audio capture + bands
-- [ ] Phase 4 — expandable panel and settings
-- [ ] Phase 5 — Flatpak + AppImage
-- [ ] Later — Windows port (GSMTC + WASAPI loopback)
+## Why the pivot
 
-## Design and originality
+- A normal window cannot sit inside the GNOME bar: the shell draws the panel above
+  every client.
+- Any window just below the bar covers the title bar of maximised windows.
+- The only space that is always visible and reserved is the panel, and the panel
+  is 32 px tall.
 
-Floatbeat's initial inspiration is [Coucou](https://github.com/louis-cfm/coucou)
-by Louis Raillé (MIT code, reserved name and assets). Floatbeat **does not reuse
-any Coucou code, art, sound or naming**, and is deliberately built around a
-different silhouette (beveled cube, headphone band, single wrap-around visor)
-and a different animation language. The credit is here because honesty about
-inspiration is cheaper than defending a clone accusation.
+So the character lives in the panel at bar scale, with an optional overflow of a
+few pixels, and the full-size version moves into a popover. Details, measurements
+and rejected alternatives: [`docs/DECISIONS.md`](docs/DECISIONS.md) ADR-015.
+
+## Performance
+
+The extension draws a 56×38 Cairo surface at 25 fps only while it has something
+to animate; the idle path will stop the timer entirely. The Python engine and the
+popover will be measured when they land. Historical numbers for the v0.1.0 app
+are in [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md).
 
 ## License
 
-Code under the [MIT License](LICENSE). Artwork and sounds, when they exist, will
-be released under their own license file.
+Code under the [MIT License](LICENSE). Artwork, when it exists, will be released
+under its own license file.

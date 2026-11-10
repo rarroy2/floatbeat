@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0-alpha.1] - 2026-11-10
+
+### Added
+
+- GNOME Shell extension spike: a 56×38 Cairo actor in the top panel, left of the
+  clock, with 6 px of overflow below the bar.
+- `extension/avatar.js` mini avatar with cyan eyes, arms and a mixer desk.
+- Blob avatar renderer for the future popover, with swaying ropes and a hue-only
+  eye accent.
+- Previews for the mini avatar and the popover avatar.
+
+### Changed
+
+- **Pivot**: the project is now a GNOME Shell extension plus a Python engine and
+  a translucent popover. A normal window cannot be always visible without
+  covering window titles (ADR-015).
+- Repository restructured around `extension/` and the reusable engine modules.
+
+### Removed
+
+- The Qt floating-window app from `main`. It is preserved in the `v0.1.0` tag.
+
 ### Added
 
 - Position anchors: the widget snaps to any corner of the work area and defaults
@@ -43,5 +65,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `FLOATBEAT_STATS=1` diagnostics and `tools/preview.py` to render the avatar to
   a PNG without a display.
 
-[Unreleased]: https://github.com/rarroy2/floatbeat/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/rarroy2/floatbeat/compare/v0.2.0-alpha.1...HEAD
+[0.2.0-alpha.1]: https://github.com/rarroy2/floatbeat/releases/tag/v0.2.0-alpha.1
 [0.1.0]: https://github.com/rarroy2/floatbeat/releases/tag/v0.1.0

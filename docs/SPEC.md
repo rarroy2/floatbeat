@@ -1,223 +1,121 @@
-# Floatbeat — Especificación (v0.2, corregida)
+# Floatbeat — Especificación (v0.3, extensión)
 
-> Reemplaza a la v0.1. Los cambios no son cosméticos: eliminan supuestos que no
-> se sostienen en Linux real. Cada corrección está justificada en
-> [`DECISIONS.md`](DECISIONS.md) y medida en [`BENCHMARKS.md`](BENCHMARKS.md).
+> Sustituye a la spec v0.2 de la ventana flotante. El cambio está justificado en
+> [`DECISIONS.md`](DECISIONS.md) (ADR-015) y el código anterior queda en el tag
+> `v0.1.0`.
 
 ## 1. Resumen
 
-Widget de escritorio para Linux: ventana flotante, sin bordes, transparente y
-siempre visible que muestra a un DJ ("cubito") reaccionando al audio del sistema
-y a los metadatos MPRIS2. Objetivo: coste casi nulo cuando no hay música y una
-estética propia, no un clon.
+DJ diminuto en la barra superior de GNOME, con un motor Python que aporta audio y
+MPRIS, y un popover Qt translúcido con la versión grande, la portada y los
+controles.
 
-**Estado:** pre-alpha, fase de especificación. Sin código todavía.
+## 2. Por qué una extensión
 
-## 2. Objetivos y no-objetivos
+Tres requisitos incompatibles con una ventana normal:
 
-### Objetivos v0.1
-- Ventana flotante arrastrable que funcione en X11 y en sesiones Wayland vía
-  XWayland, sin crashes ni ventanas huérfanas.
-- Animación ligada al **nivel de audio real**, no al estado de un reproductor.
-- Metadatos y controles MPRIS2 sin polling.
-- Consumo en reposo indistinguible de cero (sin repintados, sin stream abierto).
-- Empaquetado Flatpak y AppImage reproducible en CI.
+1. estar siempre visible,
+2. no tapar información (barra de título, controles de ventana),
+3. no ocultarse.
 
-### No-objetivos v0.1
-- Soporte nativo de layer-shell en GNOME (no existe; ver ADR-003).
-- Vídeo, letras sincronizadas, ecualizador de 64 bandas, temas descargables.
-- Port a Windows/macOS/iOS (solo se deja la arquitectura preparada).
-- Presupuesto de 40 MB de RAM (imposible con Qt; ver ADR-002).
+La única zona reservada del escritorio es el panel. Un cliente no puede dibujar
+dentro de él, así que la única vía es una extensión. La ventana flotante de
+v0.1.0 se conserva como histórico y como prueba del presupuesto de render.
 
-## 3. Stack definitivo
-
-| Capa | Elección | Por qué |
-| --- | --- | --- |
-| Lenguaje | Python 3.12+ | Wheels de PySide6 6.12 disponibles hasta 3.14 |
-| GUI | PySide6 6.12 (`QtWidgets`) | Un solo toolkit, portable a Windows |
-| D-Bus | **QtDBus** (incluido en PySide6) | Señales nativas, mismo event loop, cero deps |
-| Audio | **`parec` en subproceso** | `pulsectl` no lee muestras; `parec` es estable en PipeWire y PulseAudio |
-| Análisis | `array` + `math` (RMS y 3–5 bandas) | `audioop` fue eliminado en Python 3.13 |
-| Render | `QPainter` procedural | Sin Lottie, sin GIF, sin assets que envejezcan |
-| Ajustes | `QSettings` (INI) | Cero dependencias, portable |
-| Empaquetado | Flatpak (`io.qt.PySide.BaseApp`) + AppImage | Ver ADR-010 |
-
-Dependencias de runtime: **PySide6** y el binario `parec` del sistema. Nada más.
-
-## 4. Arquitectura
+## 3. Arquitectura
 
 ```
-floatbeat/
-├── __main__.py          # arranque, QApplication, single-instance
-├── app.py               # PlayerState, máquina de estados, wiring
-├── ui/
-│   ├── widget.py        # ventana frameless/translúcida, drag, expandir
-│   ├── avatar.py        # cubito + visor + barras (QPainter)
-│   ├── panel.py         # metadata, controles, ajustes
-│   └── theme.py         # paleta, radios, tipografía
-├── audio/
-│   ├── mpris.py         # cliente MPRIS2 sobre QtDBus      (fase 2)
-│   ├── capture.py       # parec → frames PCM normalizados  (fase 3)
-│   ├── analysis.py      # RMS + bandas con suavizado
-│   └── demo.py          # fuente sintética 124 BPM (fase 1)
-└── desktop/
-    └── display.py       # preferencia XWayland, restauración de posición
+┌──────────────────────────────┐
+│ GNOME Shell (GJS + Cairo)    │
+│  actor 56×38 en el panel     │  ← dibuja, anima, detecta clic
+└──────────────┬───────────────┘
+               │ D-Bus (niveles + ShowPopover)
+┌──────────────▼───────────────┐
+│ Motor Python                 │
+│  MPRIS2 (QtDBus)             │  ← título, artista, portada, controles
+│  audio (demo → parec)        │  ← RMS + 4 bandas
+└──────────────┬───────────────┘
+               │ mismo proceso
+┌──────────────▼───────────────┐
+│ Popover Qt translúcido       │
+│  avatar grande + portada     │
+│  título/artista + controles  │
+└──────────────────────────────┘
 ```
 
-### Flujo de datos
+- La extensión no depende de Python para existir: sin motor muestra el estado
+  apagado.
+- El motor publica `Frame(playing, {level, bands})` y expone `ShowPopover(x, y)`.
+- El popover se abre centrado bajo el reloj y se cierra al hacer clic fuera o con
+  Escape.
 
-1. `MprisWatcher` se suscribe a `NameOwnerChanged` de `org.mpris.MediaPlayer2.*`
-   y a `PropertiesChanged` del reproductor activo.
-2. `AudioCapture` arranca `parec` contra el monitor del sink por defecto y emite
-   bloques de ~1024 muestras mono a 44.1 kHz.
-3. `analysis.py` calcula RMS y 4 bandas con filtros de primer orden (graves,
-   medios-bajos, medios-altos, agudos) y aplica ataque/release asimétrico.
-4. `app.py` decide el estado: `idle`, `vibing`, `mixing`, `paused`.
-5. `ui` solo repinta si el estado visual cambió o hay nuevas amplitudes.
+## 4. Estados del personaje
 
-### Máquina de estados
+| Estado | Ojos | Barras | Animación |
+| --- | --- | --- | --- |
+| Apagado (sin música) | Grises | Ninguna | Ninguna; timer parado |
+| Reproduciendo | Cian con brillo | 5 barras activas | 25 fps |
+| Popover abierto | Igual que el estado de fondo | Igual | El popover no cambia el estado |
 
-```
-        ┌──────────── pause/silencio > 1.5 s ────────────┐
-        ▼                                                │
-     ┌──────┐   audio > umbral   ┌────────┐  pico > 0.8  │
-     │ idle │ ─────────────────▶ │ vibing │ ───────────▶ │ mixing │
-     └──────┘                    └────────┘ ◀─────────── └────────┘
-        ▲                            │        RMS < 0.6
-        └──────── stream cerrado ────┘
-```
+El estado se deriva de `PlaybackStatus` de MPRIS y/o del nivel de audio. Sin
+reproductor y sin señal: apagado.
 
-`PlaybackStatus` **no** controla la animación (ver ADR-007). Solo decide si se
-muestra el icono de pausa y si los controles están activos.
+## 5. Fases
 
-## 5. Fases y criterios de aceptación
+### Fase 1 — Extensión (hecha)
+- Actor en el panel, posicionado por la allocation del reloj.
+- Dibujo Cairo del avatar mini, con 6 px de overflow.
+- Animación de prueba a 25 fps y clic registrado.
+- **Aceptación:** carga sin errores en GNOME 50.6, se ve nítido, no rompe el shell.
 
-### Fase 0 — Fundaciones
-- Repo, licencia MIT, `.gitignore`, README, CI de lint (`ruff`) y tests.
-- `pyproject.toml` con `requires-python = ">=3.12"`.
-- **Aceptación:** `uv pip install -e .` en limpio y `ruff check` verde.
+### Fase 2 — Motor MPRIS + D-Bus
+- Descubrimiento reactivo de reproductores (`NameOwnerChanged`).
+- Metadata, estado, portada y controles.
+- Servicio `io.github.rarroy2.Floatbeat.Engine` con `Frame` y `ShowPopover`.
+- **Aceptación:** el widget pasa a cian al reproducir y a gris al pausar; los
+  controles del popover funcionan con Spotify/VLC/Firefox.
 
-### Fase 1 — Ventana flotante y avatar procedural
-- `QWidget` frameless, `WA_TranslucentBackground`, `WindowStaysOnTopHint`.
-- Arrastre con `windowHandle().startSystemMove()` (funciona en X11 y Wayland).
-- Avatar dibujado con `QPainter`: cubo biselado, visor único, 4 barras.
-- Amplitudes alimentadas por un oscilador de prueba (`--demo`).
-- **Aceptación:** 30 fps estables, ≤ 7 % de un núcleo, ≤ 2 ms de pintado por
-  frame, RSS ≤ 120 MB, drag correcto en GNOME Wayland y en X11, y posición
-  inicial en la esquina superior derecha del área de trabajo.
+### Fase 3 — Popover
+- Ventana frameless translúcida, 380×220, anclada bajo el reloj.
+- Avatar grande, portada, título, artista, progreso y controles.
+- **Aceptación:** abre y cierra sin romper el foco; se actualiza en vivo.
 
-### Fase 2 — MPRIS2
-- Descubrimiento reactivo de reproductores; selección del activo.
-- Lectura de `Metadata` (`xesam:title`, `xesam:artist`, `mpris:artUrl`) y
-  `PlaybackStatus`.
-- Controles `PlayPause`, `Next`, `Previous`, `Seek`.
-- **Aceptación:** cambiar de canción en Spotify/VLC/Firefox actualiza la UI en
-  < 100 ms sin polling; matar el reproductor no deja estado colgado.
-
-### Fase 3 — Audio real
-- `parec` contra `@DEFAULT_MONITOR@`, formato fijo s16le/44.1 kHz/mono.
-- RMS + 4 bandas con suavizado; sin picos de GC (buffers preasignados).
-- Maper de "silencio" a idle tras 1.5 s.
-- **Aceptación:** latencia visual < 80 ms; CPU ≤ 3 %; al pausar, proceso `parec`
-  termina y el timer se detiene.
-
-### Fase 4 — Panel y ajustes
-- Expansión animada al clic (150–220 ms, `QEasingCurve.OutCubic`).
-- Título, artista, carátula (cacheada en disco), controles.
-- Ajustes: posición, opacidad, "mirar al cursor", arranque automático.
-- **Aceptación:** la ventana crece sin saltos y recuerda geometría entre
-  sesiones; el modo "sin mirada" no instala el timer del cursor.
+### Fase 4 — Audio real
+- `parec` contra el monitor del sink por defecto.
+- RMS + 4 bandas; silencio → estado apagado y parada del stream.
+- **Aceptación:** latencia < 80 ms, CPU del motor < 3 % de un núcleo, 0 % en
+  silencio.
 
 ### Fase 5 — Empaquetado
-- `org.freedesktop` metainfo, `.desktop`, icono SVG escalable.
-- Flatpak con `io.qt.PySide.BaseApp`; permisos mínimos:
-  `--socket=pulseaudio`, `--talk-name=org.mpris.MediaPlayer2.*`.
-- AppImage con `python-appimage`; workflow de release en GitHub Actions.
-- **Aceptación:** instalación limpia en Fedora y Ubuntu sin Python del sistema;
-  el AppImage arranca con y sin FUSE (`--appimage-extract-and-run`).
+- Extensión: zip y publicación en extensions.gnome.org.
+- Motor: unidad systemd de usuario o arranque bajo demanda.
+- **Aceptación:** instalación limpia en Fedora y Ubuntu con GNOME 45–50.
 
-## 6. Requisitos de plataforma
+## 6. Rendimiento
 
-### X11 / XWayland
-Soporte completo: posición absoluta, stacking, transparencia y drag.
-
-### Posición por defecto
-El widget se ancla a `QScreen.availableGeometry()`, no a `geometry()`: el área de
-trabajo ya excluye paneles y docks, así que en GNOME aparece bajo la barra
-superior (32 px de strut medidos) y en KDE/XFCE sigue al panel esté donde esté.
-Anclas: arriba/abajo × izquierda/derecha, margen configurable (24 px). Ver
-ADR-013. No se integra *dentro* del panel: eso requiere un plugin por escritorio.
-
-### Wayland nativo
-- `WindowStaysOnTopHint` **puede ser ignorado** por el compositor.
-- La posición absoluta **no se puede fijar**; `move()` no es autoritativo.
-- Se usa `startSystemMove()` para arrastrar y se guarda la posición como
-  preferencia, aceptando que el compositor puede recolocar.
-- En GNOME no hay layer-shell. Alternativa futura: plugin `wlr-layer-shell`
-  solo para wlroots/KDE, nunca como requisito.
-- Decisión por defecto: **forzar XWayland** (`QT_QPA_PLATFORM=xcb`) si el
-  usuario no pide lo contrario, y documentarlo en la UI de ajustes.
-
-### PipeWire / PulseAudio
-`parec` funciona en ambos gracias a `pipewire-pulse`. Si no hay servidor de
-audio, el widget arranca en modo "solo MPRIS" (barras planas) sin fallar.
-
-## 7. Presupuesto de rendimiento
-
-| Métrica | Presupuesto |
+| Pieza | Presupuesto |
 | --- | --- |
-| RSS con ventana | ≤ 120 MB |
-| PSS con ventana | ≤ 65 MB |
-| CPU a 30 fps | ≤ 7 % de un núcleo |
-| CPU en pausa | 0 repintados, timer parado (0.00 % medido) |
+| Extensión (25 fps, 56×38) | < 0.5 % de un núcleo; 0 % en apagado |
+| Motor sin popover | < 60 MB RSS, < 1 % de un núcleo |
+| Popover abierto | < 2 % de un núcleo |
 | Latencia audio → píxel | < 80 ms |
-| Arranque en frío | < 700 ms |
 
-Técnicas obligatorias para cumplirlo:
-- Cachear el cuerpo **y la placa del visor (con su glow)** como `QImage`; en el
-  frame solo se dibujan ojos, barras y LED.
-- Un único `update()` por frame (un solo evento de pintado): tres regiones
-  separadas midieron más caras que una sola.
-- No rotar el visor: 2.6° de rotación cuestan 0.65 ms/frame. El balance
-  espectral mueve la mirada de los ojos en su lugar.
-- Bajar a 24 fps solo tras 1 s de silencio; volver a 30 fps en el primer frame
-  con nivel. Cambiar el intervalo cada frame reinicia el `QTimer` y deja la tasa
-  real en ~25 fps.
-- No usar `QGraphicsView`, ni QML, ni composición por capas extra.
+La extensión debe parar el `GLib.timeout` cuando el estado es apagado y repintar
+solo al cambiar de estado. El popover no debe mantener un timer propio: consume
+los frames del motor.
 
-## 8. Interacción
+## 7. Riesgos
 
-| Gesto | Acción |
+| Riesgo | Mitigación |
 | --- | --- |
-| Arrastrar | Mover el widget (`startSystemMove`) |
-| Clic | Expandir/colapsar el panel |
-| Clic derecho | Menú: pausa, posición, salir |
-| Clic derecho → Posición | Anclar a cualquier esquina del área de trabajo |
-| Rueda sobre el cubito | Volumen del reproductor activo |
-| Clic en ojos (mantener) | "Scratch" visual, sin efecto en el audio |
+| El panel recorta el overflow en otra versión de GNOME | Detectar altura y ajustar a 32 px si hace falta |
+| APIs privadas (`statusArea.dateMenu`, `panelBox`) | Fallback al centro del monitor; probar 45–50 |
+| Recarga en desarrollo exige logout | Shell headless para validar y render Cairo aparte |
+| El motor siempre encendido consume RAM | Medirlo; valorar motor sin Qt si molesta |
+| La extensión rompe el shell | try/catch en draw y callbacks; estado apagado si falla |
 
-## 9. Riesgos
+## 8. Repositorio
 
-| Riesgo | Impacto | Mitigación |
-| --- | --- | --- |
-| GNOME Wayland ignora always-on-top | Alto | XWayland por defecto (ADR-003) |
-| `parec` ausente o sin monitor | Medio | Fallback a modo MPRIS; mensaje en ajustes |
-| Reproductores sin MPRIS | Medio | La animación depende del RMS, no de MPRIS |
-| CPU alta por repintado completo | Medio | Dirty rects + caché de cuerpo |
-| Parecido con Coucou | Medio | Silueta, paleta y animación propias; sin assets ajenos |
-| PySide6 rompe en Python nuevo | Bajo | Pin de versión y CI con 3.12/3.13/3.14 |
-
-## 10. Identidad
-
-- **Nombre:** Floatbeat (sin "rarroy", sin referencia a Wayland/X11).
-- **App ID:** `io.github.rarroy2.Floatbeat` (reverse-DNS real, requisito de
-  Flathub; nunca `org.rarroy.*`).
-- **Personaje:** cubo con bisel y visor horizontal continuo; paleta neón
-  cian/magenta sobre grafito. Sin squircle, sin ojos redondos separados.
-- **Licencia:** MIT para código; assets con licencia propia.
-
-## 11. Futuro
-
-- **Windows:** misma UI; MPRIS → GSMTC (`winsdk`) y `parec` → WASAPI loopback.
-  La capa `platform/` ya aísla ambos.
-- **Móvil:** fuera de alcance; no condiciona la arquitectura.
+- `main`: extensión + motor + documentación actual.
+- Tag `v0.1.0`: app flotante original, conservada como historia.
+- El manifiesto Flatpak/AppImage del plan anterior queda descartado.

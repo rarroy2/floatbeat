@@ -22,10 +22,8 @@ from PySide6.QtCore import QPointF, QRectF, Qt  # noqa: E402
 from PySide6.QtGui import QColor, QGuiApplication, QLinearGradient, QPainter, QPixmap  # noqa: E402
 
 from floatbeat.audio.demo import DemoSource  # noqa: E402
-from floatbeat.ui.avatar import WIDGET_SIZE, AvatarRenderer  # noqa: E402
+from floatbeat.ui.blob import BlobAvatarRenderer  # noqa: E402
 
-TILE_W = WIDGET_SIZE.width()
-TILE_H = WIDGET_SIZE.height()
 GAP = 18
 PAD = 26
 COLUMNS = 4
@@ -36,8 +34,11 @@ SCALE = 2.0
 
 def render(out: Path) -> None:
     app = QGuiApplication([])  # noqa: F841 (needed for QPixmap)
-    width = PAD * 2 + COLUMNS * TILE_W + (COLUMNS - 1) * GAP
-    height = PAD * 2 + ROWS * TILE_H + (ROWS - 1) * GAP
+    renderer = BlobAvatarRenderer()
+    tile_w = renderer.size.width()
+    tile_h = renderer.size.height()
+    width = PAD * 2 + COLUMNS * tile_w + (COLUMNS - 1) * GAP
+    height = PAD * 2 + ROWS * tile_h + (ROWS - 1) * GAP
 
     canvas = QPixmap(round(width * SCALE), round(height * SCALE))
     canvas.setDevicePixelRatio(SCALE)
@@ -59,7 +60,6 @@ def render(out: Path) -> None:
     painter.drawRect(QRectF(0, height * 0.72, width, height * 0.28))
 
     source = DemoSource()
-    renderer = AvatarRenderer()
     t = 0.0
     dt = 1.0 / 60.0
     moment_index = 0
@@ -70,11 +70,11 @@ def render(out: Path) -> None:
             renderer.set_frame(bands, level, dt, t)
             col = moment_index % COLUMNS
             row = moment_index // COLUMNS
-            x = PAD + col * (TILE_W + GAP)
-            y = PAD + row * (TILE_H + GAP)
+            x = PAD + col * (tile_w + GAP)
+            y = PAD + row * (tile_h + GAP)
             painter.save()
             painter.translate(x, y)
-            renderer.paint(painter, WIDGET_SIZE)
+            renderer.paint(painter, renderer.size)
             painter.restore()
             moment_index += 1
             continue
@@ -89,5 +89,5 @@ def render(out: Path) -> None:
 
 
 if __name__ == "__main__":
-    target = Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT / "docs" / "media" / "preview.png"
+    target = Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT / "docs" / "media" / "preview-blob.png"
     render(target)

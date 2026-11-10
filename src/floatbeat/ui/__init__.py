@@ -1,5 +1,5 @@
-"""User interface: floating window, avatar and theme."""
+"""Avatar rendering and theme."""
 
-from .theme import band_color, lerp
+from .theme import lerp
 
-__all__ = ["band_color", "lerp"]
+__all__ = ["lerp"]

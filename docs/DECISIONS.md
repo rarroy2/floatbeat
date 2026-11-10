@@ -297,3 +297,53 @@ código.
 
 **Alternativas descartadas:** wiki de GitHub (duplica y envejece); web propia
 desde el día uno (coste de mantenimiento sin usuarios todavía).
+
+---
+
+## ADR-015 — Pivote: de ventana flotante a extensión de GNOME Shell
+
+**Estado:** aceptada · 2026-11-10
+
+**Contexto:** el requisito real no era "una ventana siempre encima", sino "un DJ
+siempre visible que no estorbe". Con una ventana normal no se pueden cumplir las
+tres cosas a la vez:
+
+1. Siempre visible.
+2. Sin tapar información: cualquier ventana pegada bajo la barra tapa la barra de
+   título de las ventanas maximizadas, que es donde están el nombre y los
+   controles.
+3. Sin ocultarse: el usuario rechazó explícitamente el auto-hide.
+
+Y una ventana no puede estar *dentro* de la barra: GNOME Shell dibuja el panel por
+encima de todos los clientes, y en Wayland ni siquiera se puede pedir posición.
+
+**Decisión:** pivotar a una extensión de GNOME Shell para el personaje de la
+barra, con un motor Python (MPRIS + audio + D-Bus) y un popover Qt translúcido
+para la versión grande con portada y controles. La app de v0.1.0 se conserva en
+el tag `v0.1.0` como historia.
+
+**Evidencia:**
+- El panel mide 32 px: `availableGeometry` empieza en `y=32` en esta máquina.
+- En el código de GNOME Shell 50, `panelBox` es un `St.BoxLayout` sin
+  `clip_to_allocation`, así que un actor añadido al panel puede asomar unos
+  píxeles por debajo.
+- El spike de extensión cargó en GNOME Shell 50.6 sin errores
+  (`GetExtensionErrors = []`) y colocó el actor con la posición del reloj.
+- La app de v0.1.0 midió 1,33 ms de pintado y 6,4 % de un núcleo; el problema
+  nunca fue el coste, era la colocación.
+
+**Consecuencias:**
+- El personaje en la barra es pequeño (56×38 de diseño, escala de barra). La
+  versión grande vive en el popover.
+- Solo GNOME: KDE necesitaría un plasmoides y XFCE un plugin. Se acepta.
+- Dos runtimes: GJS para el panel y Python/Qt para el motor y el popover.
+- El ciclo de desarrollo de la extensión exige cerrar sesión para recargar
+  (GNOME 50 no implementa `ReloadExtension`); se mitiga con un shell headless y
+  con el render del avatar fuera del shell.
+
+**Alternativas descartadas:**
+- Ventana flotante (v0.1.0): cubre la barra de título o hay que ocultarla.
+- Icono de bandeja: GNOME necesita AppIndicator y solo admite iconos, no un
+  personaje animado.
+- `wlr-layer-shell`: GNOME no lo implementa, y tampoco es "dentro de la barra".
+- Sustituir la barra del sistema por una propia: invasivo y frágil.
