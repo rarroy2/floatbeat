@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0-alpha.2] - 2026-11-11
+
+### Added
+
+- MPRIS2 client on jeepney: active-player selection, metadata, artwork URL,
+  position, playback status and previous/play-pause/next controls.
+- Engine (`floatbeat-engine`) exposing `Frame(playing, {level, bands})` and
+  `ShowPopover(x, y)` on `io.github.rarroy2.Floatbeat.Engine`.
+- Translucent 430×250 popover with the big avatar, album art, title, artist,
+  album, progress and controls.
+- Idle state in the panel: grey eyes, no equaliser, render timer stopped.
+- Popover preview and artwork placeholder.
+
+### Changed
+
+- The blob avatar now accepts a `playing` flag; idle draws grey eyes and no bars.
+- The engine keeps a light 250 ms loop when idle and 40 ms while playing.
+
 ## [0.2.0-alpha.1] - 2026-11-10
 
 ### Added
@@ -65,6 +83,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `FLOATBEAT_STATS=1` diagnostics and `tools/preview.py` to render the avatar to
   a PNG without a display.
 
-[Unreleased]: https://github.com/rarroy2/floatbeat/compare/v0.2.0-alpha.1...HEAD
+[Unreleased]: https://github.com/rarroy2/floatbeat/compare/v0.2.0-alpha.2...HEAD
+[0.2.0-alpha.2]: https://github.com/rarroy2/floatbeat/releases/tag/v0.2.0-alpha.2
 [0.2.0-alpha.1]: https://github.com/rarroy2/floatbeat/releases/tag/v0.2.0-alpha.1
 [0.1.0]: https://github.com/rarroy2/floatbeat/releases/tag/v0.1.0

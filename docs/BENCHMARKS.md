@@ -149,3 +149,29 @@ python tools/preview.py             # PNG sin ventana (offscreen)
 El prototipo original de la fase 0 vivió fuera del repo a propósito. Las cifras
 de arriba salen del binario real con `FLOATBEAT_STATS=1`, no de un benchmark
 sintético.
+
+## Motor y extensión (v0.2.0-alpha.2)
+
+Medido con el motor offscreen (sin plugin xcb), 12 hilos, GNOME 50.6:
+
+| Pieza | RSS | CPU |
+| --- | --- | --- |
+| Motor idle (MPRIS cada 500 ms, bucle 250 ms) | 58.7 MB | 0.50 % de un núcleo |
+| Motor reproduciendo (demo, 25 Hz) | 58.7 MB | 2.17 % de un núcleo |
+| Extensión idle | — | Sin timer; un repintado al cambiar de estado |
+| Extensión reproduciendo | — | 56×38 Cairo a 25 fps |
+
+El motor con el plugin xcb ronda los 85 MB porque carga QtWidgets y el plugin de
+plataforma para el popover. Si eso molesta, la separación natural es un servicio
+`QCoreApplication` ligero + un proceso de popover que solo vive mientras está
+abierto.
+
+El motor emite `Frame` a 25 Hz solo mientras reproduce; al parar emite un último
+frame con `playing=false` y la extensión apaga su timer. Sin motor, la barra se
+queda en gris sin coste de animación.
+
+### Nota sobre MPRIS y QtDBus
+
+`iface.property("Metadata")` y el parseo manual de `QDBusArgument` fallan en
+PySide6 6.12 (`type QDBusRawType<0x617b73767d>* must be registered`). Por eso el
+cliente MPRIS usa jeepney y solo nuestro servicio de salida usa QtDBus.

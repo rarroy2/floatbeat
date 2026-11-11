@@ -1,9 +1,11 @@
 # Using Floatbeat
 
-Floatbeat is a GNOME Shell extension: a tiny DJ that hangs in the top bar, left
-of the clock. It is not a floating window anymore (that was v0.1.0; see the tag).
+Floatbeat is a GNOME Shell extension (a tiny DJ in the top bar) plus a Python
+engine that reads MPRIS and opens the mixer popover.
 
 ## Install
+
+### Extension
 
 ```bash
 git clone https://github.com/rarroy2/floatbeat.git
@@ -18,36 +20,66 @@ Then:
 gnome-extensions enable floatbeat@rarroy2.github.io
 ```
 
-It should appear immediately, to the left of the clock.
-
-## What you see now (v0.2.0-alpha.1)
-
-- A 56×38 DJ with white body, cyan eyes, little arms and a mixer desk that
-  dangles 6 px below the bar.
-- It animates at 25 fps with a synthetic signal. Real playback comes with the
-  engine in the next phase.
-- Clicking it currently logs `[floatbeat] clicked` in the journal and makes the
-  character blink. The popover lands next.
-
-The idle state (grey eyes, no bars, no animation when nothing is playing) and the
-translucent popover with album art and controls are the immediate next steps.
-
-## Disable or uninstall
+### Engine
 
 ```bash
-gnome-extensions disable floatbeat@rarroy2.github.io
+uv pip install -e .
+.venv/bin/floatbeat-engine
 ```
 
-To remove it completely:
+Keep it running in a terminal (it will become a systemd user service in the
+packaging phase). For testing without a player:
 
 ```bash
-rm -rf ~/.local/share/gnome-shell/extensions/floatbeat@rarroy2.github.io
+.venv/bin/floatbeat-engine --demo
 ```
 
-You may also want to remove it from `org.gnome.shell enabled-extensions` in the
-Extensions app, or with `gsettings`.
+## What you see
+
+- **Nothing playing**: grey eyes, empty mixer, no animation, and the extension
+  stops its render timer.
+- **Playing**: cyan glowing eyes, equaliser bars, arms moving with the beat.
+- **Click the character**: opens the translucent popover under the clock with the
+  big avatar, album art, title/artist/album, progress and controls.
+- **Controls**: previous, play/pause and next act on the active MPRIS player.
+  Click outside or press Escape to close.
+
+If the engine is not running, the character stays in the idle state. That is
+intentional: the bar never depends on Python to exist.
+
+## Controls
+
+| Action | Result |
+| --- | --- |
+| Click the character | Open the mixer popover |
+| Click outside / Escape | Close the popover |
+| Popover buttons | Previous / play-pause / next |
+| Disable | `gnome-extensions disable floatbeat@rarroy2.github.io` |
 
 ## Troubleshooting
+
+### Nothing ever turns cyan
+
+The engine is not running, or no MPRIS player reports `Playing`.
+
+```bash
+pgrep -af floatbeat-engine
+gdbus introspect --session \
+  --dest io.github.rarroy2.Floatbeat.Engine \
+  --object-path /io/github/rarroy2/Floatbeat/Engine
+```
+
+Start it with `.venv/bin/floatbeat-engine` (or `--demo` to force the synthetic
+track).
+
+### The popover does not appear
+
+- The extension must be the current version: log out and back in after
+  `./extension/install.sh`.
+- The engine must be running.
+- The popover is a normal window under XWayland; if you force native Wayland
+  (`FLOATBEAT_NATIVE_WAYLAND=1` for the old app) positioning is up to the
+  compositor. The engine uses XWayland by default.
 
 ### It does not appear after login
 
@@ -61,34 +93,21 @@ If `State` is `ERROR`, the journal has the stack trace. Disable it with
 
 ### It is cut off at the bottom
 
-Some GNOME versions or themes may clip panel children that overflow. The fix is
-to reduce `OVERFLOW` in `extension/avatar.js` from 6 to 0; the character then
-fits entirely inside the 32 px bar.
+Some GNOME versions or themes may clip panel children that overflow. Reduce
+`OVERFLOW` in `extension/avatar.js` from 6 to 0; the character then fits inside
+the 32 px bar.
 
-### It sits in the wrong place
+### I changed the extension and nothing happens
 
-The actor is positioned from `Main.panel.statusArea.dateMenu`. If the clock is
-missing (unusual layouts), it falls back to the centre of the primary monitor.
-
-### I changed the code and nothing happens
-
-GNOME 50 does not implement `ReloadExtension`. Log out and back in after
-`./extension/install.sh`. For quick visual checks, the drawing can be rendered
-outside the shell:
-
-```bash
-gjs -m /tmp/mini_preview.mjs   # see extension/README.md
-```
-
-### Does it need Python?
-
-Not for the bar. The Python engine (MPRIS, audio levels, popover) is optional and
-lands in the next phase. Without it the extension shows the idle state.
+GNOME 50 does not implement `ReloadExtension`: log out and back in after
+`./extension/install.sh`. For quick visual checks, render the avatar outside the
+shell with GJS + Cairo (see `extension/README.md`).
 
 ## Reporting problems
 
 Open an issue at <https://github.com/rarroy2/floatbeat/issues> with:
 
-- `gnome-shell --version` and your session type (`echo $XDG_SESSION_TYPE`),
-- the output of `gnome-extensions info floatbeat@rarroy2.github.io`,
-- and the journal lines above.
+- `gnome-shell --version` and `echo $XDG_SESSION_TYPE`,
+- `gnome-extensions info floatbeat@rarroy2.github.io`,
+- the journal lines above,
+- and the engine output if it is a metadata/controls problem.

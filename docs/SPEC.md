@@ -32,7 +32,7 @@ v0.1.0 se conserva como histórico y como prueba del presupuesto de render.
                │ D-Bus (niveles + ShowPopover)
 ┌──────────────▼───────────────┐
 │ Motor Python                 │
-│  MPRIS2 (QtDBus)             │  ← título, artista, portada, controles
+│  MPRIS2 (jeepney)            │  ← título, artista, portada, controles
 │  audio (demo → parec)        │  ← RMS + 4 bandas
 └──────────────┬───────────────┘
                │ mismo proceso
@@ -68,17 +68,19 @@ reproductor y sin señal: apagado.
 - Animación de prueba a 25 fps y clic registrado.
 - **Aceptación:** carga sin errores en GNOME 50.6, se ve nítido, no rompe el shell.
 
-### Fase 2 — Motor MPRIS + D-Bus
-- Descubrimiento reactivo de reproductores (`NameOwnerChanged`).
-- Metadata, estado, portada y controles.
-- Servicio `io.github.rarroy2.Floatbeat.Engine` con `Frame` y `ShowPopover`.
-- **Aceptación:** el widget pasa a cian al reproducir y a gris al pausar; los
-  controles del popover funcionan con Spotify/VLC/Firefox.
+### Fase 2 — Motor MPRIS + D-Bus (hecha)
+- Descubrimiento y estado vía `GetAll` de MPRIS (jeepney; QtDBus no puede
+  demarshalar `a{sv}` en PySide6).
+- Servicio `io.github.rarroy2.Floatbeat.Engine` con `Frame` y `ShowPopover`
+  implementado como `QDBusVirtualObject` para conservar el nombre de interfaz.
+- **Verificado:** Spotify (título, artista, álbum, carátula, posición, controles)
+  y la cadena extensión → motor en un shell headless (`playing=true/false`).
 
-### Fase 3 — Popover
-- Ventana frameless translúcida, 380×220, anclada bajo el reloj.
-- Avatar grande, portada, título, artista, progreso y controles.
-- **Aceptación:** abre y cierra sin romper el foco; se actualiza en vivo.
+### Fase 3 — Popover (hecha)
+- Ventana frameless translúcida de 430×250 bajo el reloj.
+- Avatar grande, portada, título/artista/álbum, progreso y controles.
+- **Verificado:** render offscreen con portada real y placeholder; el popover se
+  abre con `ShowPopover` y se cierra con clic fuera o Escape.
 
 ### Fase 4 — Audio real
 - `parec` contra el monitor del sink por defecto.
@@ -96,9 +98,10 @@ reproductor y sin señal: apagado.
 | Pieza | Presupuesto |
 | --- | --- |
 | Extensión (25 fps, 56×38) | < 0.5 % de un núcleo; 0 % en apagado |
-| Motor sin popover | < 60 MB RSS, < 1 % de un núcleo |
-| Popover abierto | < 2 % de un núcleo |
-| Latencia audio → píxel | < 80 ms |
+| Motor sin popover | 0.50 % y ~59 MB con el plugin offscreen (~85 MB con xcb) |
+| Motor reproduciendo | 2.17 % de un núcleo |
+| Popover abierto | Repinta solo la zona del avatar a 25 fps |
+| Latencia audio → píxel | < 80 ms (pendiente de la captura real) |
 
 La extensión debe parar el `GLib.timeout` cuando el estado es apagado y repintar
 solo al cambiar de estado. El popover no debe mantener un timer propio: consume
