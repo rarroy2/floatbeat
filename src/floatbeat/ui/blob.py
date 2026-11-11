@@ -77,6 +77,7 @@ class BlobAvatarRenderer:
         self._cache_key: float | None = None
         self._bands: tuple[float, ...] = (0.0,) * BAND_COUNT
         self._level = 0.0
+        self._playing = True
         self._sway = 0.0
         self._now = 0.0
         self._poke_at = -10.0
@@ -94,12 +95,14 @@ class BlobAvatarRenderer:
         level: float,
         dt: float,
         now: float,
+        playing: bool = True,
     ) -> None:
         del dt
         self._bands = tuple(bands)
         self._level = max(0.0, min(1.0, level))
+        self._playing = playing
         self._now = now
-        self._sway = math.sin(now * 0.9) * 1.6 * self._level
+        self._sway = math.sin(now * 0.9) * 1.6 * self._level if playing else 0.0
 
     def poke(self) -> None:
         self._poke_at = time.monotonic()
@@ -139,7 +142,7 @@ class BlobAvatarRenderer:
         painter.setPen(QPen(DESK_EDGE, 1.0))
         painter.drawPath(path)
 
-        values = self._eq_values()
+        values = self._eq_values() if self._playing else ()
         painter.setPen(Qt.PenStyle.NoPen)
         for i, value in enumerate(values):
             height = 2.0 + 9.0 * value
@@ -156,7 +159,11 @@ class BlobAvatarRenderer:
     def _paint_arms(self, painter: QPainter) -> None:
         low = self._bands[0] if self._bands else 0.0
         high = self._bands[3] if len(self._bands) > 3 else 0.0
-        angles = (-(20.0 + 10.0 * low), 20.0 + 10.0 * high)
+        angles = (
+            (-(20.0 + 10.0 * low), 20.0 + 10.0 * high)
+            if self._playing
+            else (-14.0, 14.0)
+        )
         for shoulder_x, angle in zip(SHOULDER_XS, angles, strict=True):
             painter.save()
             painter.translate(shoulder_x, SHOULDER_Y)
@@ -180,15 +187,18 @@ class BlobAvatarRenderer:
         gradient = QLinearGradient(0.0, -height / 2.0, 0.0, height / 2.0)
         gradient.setColorAt(0.0, lerp(EYE_ACCENT, WHITE, 0.25))
         gradient.setColorAt(1.0, EYE_ACCENT_DEEP)
+        idle = QColor(138, 138, 138)
+        eye_color = gradient if self._playing else idle
 
         for eye_x in EYE_XS:
             rect = QRectF(eye_x + gaze - EYE_W / 2.0, EYE_Y - height / 2.0, EYE_W, height)
             painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(with_alpha(EYE_ACCENT, 45))
-            painter.drawRoundedRect(rect.adjusted(-2.0, -2.0, 2.0, 2.0), 6.0, 6.0)
-            painter.setBrush(gradient)
+            if self._playing:
+                painter.setBrush(with_alpha(EYE_ACCENT, 45))
+                painter.drawRoundedRect(rect.adjusted(-2.0, -2.0, 2.0, 2.0), 6.0, 6.0)
+            painter.setBrush(eye_color)
             painter.drawRoundedRect(rect, EYE_W / 2.0, EYE_W / 2.0)
-            if height > 8.0:
+            if height > 8.0 and self._playing:
                 painter.setBrush(QColor(255, 255, 255, 190))
                 painter.drawEllipse(QPointF(rect.center().x(), rect.top() + 4.0), 1.1, 1.1)
 
