@@ -20,5 +20,17 @@ gnome-extensions enable floatbeat@rarroy2.github.io
 - Errors: `journalctl --user -b -o cat /usr/bin/gnome-shell | grep -i floatbeat`
   or `gnome-extensions info floatbeat@rarroy2.github.io`.
 
-The click currently logs `[floatbeat] clicked`; it will call the Python engine
-over D-Bus once that exists.
+Clicking the character calls `ShowPopover` on the Python engine and opens the
+translucent mixer. Without the engine the actor stays idle (grey eyes, no bars).
+
+## Engine
+
+```bash
+uv pip install -e ..
+.venv/bin/floatbeat-engine          # real MPRIS
+.venv/bin/floatbeat-engine --demo    # synthetic track for development
+```
+
+The extension watches `io.github.rarroy2.Floatbeat.Engine` on the session bus;
+when it appears it subscribes to `Frame(playing, {level, bands})` and switches
+between idle and playing.
